@@ -124,16 +124,13 @@ async function flushRefresh(){
   try{await Promise.all(state.panes.map((pane,i)=>i<state.layout&&!tabOf(pane).search&&ChangePolicy.affects(tabOf(pane).path,paths)?refreshTab(i):Promise.resolve()));if(search&&refreshFocused)await refreshSearch();}
   finally{refreshRunning=false;if(pendingRefreshAll||pendingRefreshPaths.size||pendingSearch)queueRefresh([]);}
 }
-function setRefreshFocus(focused){refreshFocused=focused;document.body.classList.toggle('app-unfocused',!focused);if(!focused){clearTimeout(refreshTimer);return;}if(pendingRefreshAll||pendingRefreshPaths.size||pendingSearch)queueRefresh([]);}
+function setRefreshFocus(focused){refreshFocused=focused;document.body.classList.toggle('app-unfocused',!focused);if(!focused){clearTimeout(refreshTimer);return;}scheduleSidebarRefresh();if(pendingRefreshAll||pendingRefreshPaths.size||pendingSearch)queueRefresh([]);}
 
 function renderRoots(roots){
   state.boot.roots=roots;$('#scope-label').textContent=`${roots.length}개 검색 폴더`;
   $('#root-list').innerHTML=roots.length?roots.map((root,i)=>`<div class="root-item"><span title="${escapeHTML(root)}">${escapeHTML(root)}</span><button data-remove-root="${i}" aria-label="${escapeHTML(root)} 검색 제외">제외</button></div>`).join(''):'<p>검색 폴더를 추가하세요.</p>';
   $('#root-list').querySelectorAll('button').forEach(button=>button.onclick=()=>call(api.removeRoot(roots[Number(button.dataset.removeRoot)])).then(renderRoots).catch(error=>toast(error.message)));
-  const custom=roots.filter(root=>!state.boot.places.some(place=>place.path.toLowerCase()===root.toLowerCase()));
-  $('#custom-places').innerHTML=custom.map((root,i)=>`<button data-location="${escapeHTML(root)}" data-root-nav="${i}" title="${escapeHTML(root)}">${icon('folder-blue')}<span>${escapeHTML(basename(root))}</span></button>`).join('');
-  $('#custom-places').querySelectorAll('button').forEach(button=>button.onclick=()=>navigate(state.active,custom[Number(button.dataset.rootNav)]));
-  syncSidebar();
+  renderSidebar();
 }
 function initFeatures(boot){
   const updateZoom=factor=>{$('#zoom-reset').textContent=`${Math.round(factor*100)}%`;};
@@ -170,6 +167,7 @@ function initFeatures(boot){
     if((event.target instanceof Element&&event.target.closest('input:not([type="checkbox"]),textarea,select'))||document.querySelector('dialog[open]'))return;
     if(event.key==='Escape'){$('#context-menu').hidden=true;return;}
     const menu=$('#context-menu');if(!menu.hidden&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();const buttons=[...menu.querySelectorAll('button:not(:disabled)')],index=buttons.indexOf(document.activeElement);buttons[(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus();return;}
+    if(event.target instanceof Element&&event.target.closest('#sidebar'))return;
     if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){event.preventDefault();const row=document.activeElement.closest?.('.file-row'),rect=(row||state.panes[state.active].element.querySelector('.file-table')).getBoundingClientRect();showFileMenu(state.active,rect.x+20,rect.y+20,!selectedEntries().length);return;}
     const key=event.key.toLowerCase();let action;
     if(event.ctrlKey&&event.shiftKey&&key==='c')action='path';

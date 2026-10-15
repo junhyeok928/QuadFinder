@@ -3,6 +3,9 @@ if(process.argv.includes('--quadfinder-design-preview')) {
   contextBridge.exposeInMainWorld('quadfinderDesignPreview', true);
 } else contextBridge.exposeInMainWorld('quadfind', Object.freeze({
   bootstrap: () => ipcRenderer.invoke('bootstrap'),
+  folders:path=>ipcRenderer.invoke('files:folders',path),
+  validateFolder:path=>ipcRenderer.invoke('files:validate-folder',path),
+  refreshDrives:()=>ipcRenderer.invoke('navigation:drives'),
   list: path => ipcRenderer.invoke('files:list', path),
   preview:path=>ipcRenderer.invoke('files:preview',path),
   shellMenu:input=>ipcRenderer.invoke('files:shell-menu',input),

@@ -36,11 +36,14 @@ async function run({window,root,notify,saveComplete,networkRoot,stateFile,rootsF
     await evaluate(`setActive(0);navigate(0,${JSON.stringify(networkRoot)})`);
     assert(await evaluate(`!tabOf(state.panes[0]).error&&tabOf(state.panes[0]).path.startsWith('\\\\\\\\')&&!!document.querySelector('#custom-places button.active')`));
     const count=await evaluate(`tabOf(state.panes[0]).entries.length`);
+    const dirs=await evaluate(`call(api.folders(${JSON.stringify(networkRoot)}))`);assert(dirs.every(entry=>entry.directory));
+    await evaluate(`[...document.querySelectorAll('#custom-places>.nav-item')].find(node=>navKey(node.dataset.navPath)===navKey(${JSON.stringify(networkRoot)})).querySelector('.nav-toggle').click()`);
+    await wait(`[...document.querySelectorAll('#custom-places>.nav-item')].find(node=>navKey(node.dataset.navPath)===navKey(${JSON.stringify(networkRoot)})).querySelectorAll('.nav-children .nav-location').length===${dirs.length}`);
     const breadcrumb=await evaluate(`state.panes[0].element.querySelector('[data-breadcrumb]').dataset.breadcrumb`);assert(breadcrumb.startsWith('\\\\'));assert(breadcrumb.split('\\').filter(Boolean).length===2);
     await saveComplete();const saved=JSON.parse(await fs.readFile(stateFile,'utf8')),savedRoots=JSON.parse(await fs.readFile(rootsFile,'utf8'));assert(saved.panes[0].tabs.some(tab=>tab.path.startsWith('\\\\')));assert(savedRoots.roots.some(value=>value.startsWith('\\\\')));
     await window.loadURL('quadfinder://app/index.html');await wait(`window.__quadfinderReady===true`);
     assert(await evaluate(`tabOf(state.panes[0]).path.startsWith('\\\\\\\\')&&!tabOf(state.panes[0]).error&&!!document.querySelector('#custom-places button.active')`));
-    await evaluate(`call(api.removeRoot(${JSON.stringify(networkRoot)}))`);network={connected:true,items:count,sidebar:true,breadcrumb:true,saved:true,restored:true};
+    await evaluate(`call(api.removeRoot(${JSON.stringify(networkRoot)})).then(()=>{navState().expanded=navState().expanded.filter(path=>navKey(path)!==navKey(${JSON.stringify(networkRoot)}));saveNavigation();})`);network={connected:true,items:count,sidebar:true,folderTree:true,breadcrumb:true,saved:true,restored:true};
   }
   await evaluate(`Promise.all([call(api.removeRoot(${JSON.stringify(first)})),call(api.removeRoot(${JSON.stringify(second)}))])`);
   return {passed:true,sidebarSelection:true,sidebarAfterPaneSwitch:true,unchangedNoRepaint:true,backgroundNoRepaint:true,foregroundRefresh:true,unrelatedPaneStable:true,scrollAndSelectionPreserved:true,searchNoRepaint:true,network};

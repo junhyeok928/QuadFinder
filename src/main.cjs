@@ -8,6 +8,7 @@ const { OperationQueue, renameItem, normalizeSources } = require('./operations.c
 const { watch } = require('node:fs');
 const windowsShell=require('./windows-shell.cjs');
 const {preview}=require('./file-preview.cjs');
+const {normalize:normalizeNavigation}=require('./navigation-state.cjs');
 const {normalize:normalizeView}=require('./view-options.cjs');
 const pdfPreviews=new Map();
 let shellMenuOpen=false;
@@ -98,14 +99,15 @@ async function checkSidebarResize() {
   const expanded=await drag(90);
   const shrunk=await drag(-50);
   const minimum=await drag(-200);
+  const toolsFit=await window.webContents.executeJavaScript(`(()=>{const sidebar=document.querySelector('#sidebar').getBoundingClientRect();return [...document.querySelectorAll('.sidebar-tools button')].every(button=>{const r=button.getBoundingClientRect();return r.left>=sidebar.left&&r.right<=sidebar.right&&r.bottom<=sidebar.bottom;});})()`);
   const maximum=await drag(600);
   await window.webContents.executeJavaScript(`document.querySelector('#sidebar-resizer').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`);
   window.webContents.sendInputEvent({type:'keyDown',keyCode:'Right'});
   window.webContents.sendInputEvent({type:'keyUp',keyCode:'Right'});
   await new Promise(resolve=>setTimeout(resolve,50));
   const keyboard=(await measure()).width;
-  const styles=await window.webContents.executeJavaScript(`({stuck:document.body.classList.contains('resizing-sidebar'),gradient:getComputedStyle(document.querySelector('#filters button.active')).backgroundImage,shadow:getComputedStyle(document.querySelector('#filters button.active')).boxShadow,statusGradient:getComputedStyle(document.querySelector('.statusbar')).backgroundImage,navFont:getComputedStyle(document.querySelector('#places button')).fontSize})`);
-  return {expanded,shrunk,minimum,maximum,keyboard,works:expanded===274 && shrunk===224 && minimum===150 && maximum===Math.min(400,window.getContentBounds().width-640) && keyboard===194 && !styles.stuck && styles.gradient==='none' && styles.shadow==='none' && styles.statusGradient==='none' && styles.navFont==='12px'};
+  const styles=await window.webContents.executeJavaScript(`({stuck:document.body.classList.contains('resizing-sidebar'),gradient:getComputedStyle(document.querySelector('#filters button.active')).backgroundImage,shadow:getComputedStyle(document.querySelector('#filters button.active')).boxShadow,statusGradient:getComputedStyle(document.querySelector('.statusbar')).backgroundImage,navFont:getComputedStyle(document.querySelector('#places .nav-location')).fontSize})`);
+  return {expanded,shrunk,minimum,maximum,keyboard,works:toolsFit && expanded===274 && shrunk===224 && minimum===150 && maximum===Math.min(400,window.getContentBounds().width-640) && keyboard===194 && !styles.stuck && styles.gradient==='none' && styles.shadow==='none' && styles.statusGradient==='none' && styles.navFont==='12px'};
 }
 
 function startIndex() {
@@ -158,9 +160,10 @@ async function setup() {
     const url = new URL(request.url);
     if(url.hostname==='preview'){const item=pdfPreviews.get(url.pathname.slice(1));if(!item||Date.now()-item.time>3600000)return new Response('Expired',{status:404});const response=await net.fetch(pathToFileURL(item.file).href);return new Response(response.body,{headers:{'Content-Type':'application/pdf','X-Content-Type-Options':'nosniff'}});}
     if(url.hostname==='app'&&['/app-icon.svg','/app-icon.ico'].includes(url.pathname))return net.fetch(pathToFileURL(path.join(app.getAppPath(),'assets',url.pathname.slice(1))).href);
+    if(url.hostname==='app'&&url.pathname==='/navigation-state.js')return net.fetch(pathToFileURL(path.join(__dirname,'navigation-state.cjs')).href);
     if(url.hostname==='app'&&url.pathname==='/change-policy.js')return net.fetch(pathToFileURL(path.join(__dirname,'change-policy.cjs')).href);
     if(url.hostname==='app'&&url.pathname==='/view-options.js')return net.fetch(pathToFileURL(path.join(__dirname,'view-options.cjs')).href);
-    const assets = new Set(['index.html', 'styles.css', 'renderer.js', 'features.js', 'view-ui.js', 'icons.js', 'preview.js']);
+    const assets = new Set(['index.html', 'styles.css', 'renderer.js', 'features.js', 'view-ui.js', 'sidebar.js', 'icons.js', 'preview.js']);
     const file = url.pathname.slice(1) || 'index.html';
     if (url.hostname !== 'app' || !assets.has(file)) return new Response('Not found', { status: 404 });
     return net.fetch(pathToFileURL(path.join(__dirname, 'renderer', file)).href);
@@ -200,7 +203,7 @@ async function setup() {
       writeSettings({}).then(()=>window.close()).catch(error=>send('view:error',error.message));
     }
   });
-  handle('bootstrap', async () => {
+async function readDrives(){
     const drives = [];
     if (process.platform === 'win32') for (let code = 65; code <= 90; code++) {
       const root = String.fromCharCode(code) + ':\\';
@@ -211,8 +214,14 @@ async function setup() {
         drives.push({ label: `로컬 디스크 (${root.slice(0, 2)})`, path: root, icon: 'drive', ...capacity });
       } catch { /* Not mounted. */ }
     }
+    return drives;
+  }
+  handle('navigation:drives',readDrives);
+  handle('bootstrap', async () => {const drives=await readDrives();
     return { places, drives, roots, layout, zoomFactor, indexStatus, jobs:operations.snapshot(), version: app.getVersion(), smoke };
   });
+  handle('files:validate-folder',async value=>{const folder=localPath(value);if(!(await fs.stat(folder)).isDirectory())throw new Error('폴더 경로를 입력하세요.');return folder;});
+  handle('files:folders',async value=>{const folder=localPath(value),items=await fs.readdir(folder,{withFileTypes:true});const entries=items.filter(item=>item.isDirectory()&&!item.isSymbolicLink()&&!item.name.startsWith('.quadfinder-')).map(item=>({name:item.name,path:path.join(folder,item.name),directory:true}));return (await enrich(entries)).filter(entry=>!entry.hidden).sort((a,b)=>a.name.localeCompare(b.name,'ko',{numeric:true}));});
   handle('files:list',async value=>{const data=await listDirectory(value);data.entries=await enrich(data.entries);return data;});
   handle('files:preview',value=>preview(value,{thumbnail:async file=>{const image=await nativeImage.createThumbnailFromPath(file,{width:1200,height:900});const size=nativeImage.createFromPath(file).getSize();return {image:image.toDataURL(),width:size.width,height:size.height};},pdfURL:file=>{const token=require('node:crypto').randomUUID();if(pdfPreviews.size>=64)pdfPreviews.delete(pdfPreviews.keys().next().value);pdfPreviews.set(token,{file,time:Date.now()});return 'quadfinder://preview/'+token;}}));
   handle('files:clipboard-write',async input=>{if(!input||!['copy','move'].includes(input.kind)||!Array.isArray(input.paths)||!input.paths.length||input.paths.length>10000)throw new Error('잘못된 클립보드 요청입니다.');return windowsShell.request({mode:'clipboard-write',kind:input.kind,paths:input.paths.map(localPath)});});
@@ -289,7 +298,10 @@ async function setup() {
   handle('layout:save', async value => {
     if (!value || ![1, 2, 4].includes(value.layout) || !Array.isArray(value.panes) || value.panes.length !== 4) throw new Error('잘못된 레이아웃입니다.');
     const folderViews=Object.fromEntries(Object.entries(value.folderViews||{}).slice(-2000).filter(([key])=>{try{localPath(key);return true;}catch{return false;}}).map(([key,options])=>[key,normalizeView(options)]));
-    const clean = { folderViews, layout: value.layout, sidebarWidth: Number.isFinite(value.sidebarWidth) ? Math.max(150,Math.min(400,Math.round(value.sidebarWidth))) : 184, panes: value.panes.map(pane => {
+    const navigation=normalizeNavigation(value.navigation);
+    for(const field of ['favorites','hidden','order','expanded'])navigation[field]=navigation[field].filter(value=>{try{localPath(value);return true;}catch{return false;}});
+    navigation.labels=Object.fromEntries(Object.entries(navigation.labels).filter(([value])=>{try{localPath(/^[a-z]:$/i.test(value)?value+'\\':value);return true;}catch{return false;}}));
+    const clean = { navigation, folderViews, layout: value.layout, sidebarWidth: Number.isFinite(value.sidebarWidth) ? Math.max(150,Math.min(400,Math.round(value.sidebarWidth))) : 184, panes: value.panes.map(pane => {
       if (!Array.isArray(pane.tabs) || pane.tabs.length < 1 || pane.tabs.length > 20) throw new Error('탭 개수를 확인하세요.');
       return { active: Math.max(0, Math.min(pane.tabs.length - 1, Number(pane.active) || 0)), tabs: pane.tabs.map(tab => ({ path: localPath(tab.path),view:normalizeView({view:tab.view}).view,options:normalizeView(tab.options||{view:tab.view}) })) };
     }) };
@@ -378,6 +390,7 @@ async function setup() {
     result.viewOptions=await require('../scripts/view-smoke.cjs').run({window,root:functionSmokeRoot,appPath:app.getAppPath(),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;}});
     result.fileOperations=await require('../scripts/functional-smoke.cjs').run({window,root:functionSmokeRoot});
     result.refresh=await require('../scripts/refresh-smoke.cjs').run({window,root:functionSmokeRoot,notify:paths=>send('files:changed',paths),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},networkRoot:process.env.QUADFINDER_TEST_NETWORK_ROOT,stateFile:stateFile(),rootsFile:rootsFile()});
+    result.sidebar=await require('../scripts/sidebar-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile(),appPath:app.getAppPath()});
     result.mouseHistory=await require('../scripts/history-smoke.cjs').run({window,root:functionSmokeRoot});
     await window.webContents.executeJavaScript(`Promise.all(state.panes.map((_pane,index)=>navigate(index,${JSON.stringify(roots[0])})))`);
     await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;
@@ -389,7 +402,7 @@ async function setup() {
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.png'), (await window.webContents.capturePage()).toPNG());
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
-    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && Object.values(result.views).every(Boolean) && result.viewRestored && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.refresh.passed && result.mouseHistory.passed && result.viewOptions.passed && result.fileOperations.passed && result.zoom.passed ? 0 : 1);
+    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && Object.values(result.views).every(Boolean) && result.viewRestored && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.sidebar.passed && result.refresh.passed && result.mouseHistory.passed && result.viewOptions.passed && result.fileOperations.passed && result.zoom.passed ? 0 : 1);
   }
 }
 app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.show();window.focus();}});

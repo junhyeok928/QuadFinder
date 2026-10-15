@@ -56,7 +56,7 @@ function fileType(entry) {
 }
 function sizeLabel(entry) { if (entry.directory) return '—'; const bytes = entry.size; if (bytes < 1024) return `${bytes} B`; if (bytes < 1048576) return `${(bytes / 1024).toFixed(0)} KB`; if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`; return `${(bytes / 1073741824).toFixed(1)} GB`; }
 function dateLabel(value) { const d = new Date(value); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
-function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => call(api.saveLayout({ layout: state.layout, sidebarWidth: state.sidebarWidth, folderViews:state.folderViews, panes: state.panes.map(pane => ({ active: pane.active, tabs: pane.tabs.map(tab => ({path:tab.path,view:tab.view,options:viewOf(tab)})) })) })).catch(error => toast(`레이아웃 저장 실패: ${error.message}`)), 150); }
+function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => call(api.saveLayout({ layout: state.layout, sidebarWidth: state.sidebarWidth, navigation:navState(), folderViews:state.folderViews, panes: state.panes.map(pane => ({ active: pane.active, tabs: pane.tabs.map(tab => ({path:tab.path,view:tab.view,options:viewOf(tab)})) })) })).catch(error => toast(`레이아웃 저장 실패: ${error.message}`)), 150); }
 function setupSidebar(savedWidth) {
   const sidebar=$('#sidebar'), handle=$('#sidebar-resizer');
   let drag=null;
@@ -108,8 +108,9 @@ function setActive(index) { state.active = index;syncSidebar(); document.querySe
 function syncSidebar(){
   const pane=state.panes[state.active];if(!pane)return;
   const tab=tabOf(pane),current=ChangePolicy.key(tab.path),buttons=[...document.querySelectorAll('nav [data-location]')];
-  const selected=tab.search?null:buttons.filter(button=>{const key=ChangePolicy.key(button.dataset.location);return current===key||current.startsWith(key+'\\');}).sort((a,b)=>b.dataset.location.length-a.dataset.location.length)[0];
-  buttons.forEach(button=>{const active=button===selected;button.classList.toggle('active',active);if(active)button.setAttribute('aria-current','location');else button.removeAttribute('aria-current');});
+  const selected=tab.search?null:buttons.filter(button=>!button.closest('.nav-children[hidden]')).filter(button=>{const key=ChangePolicy.key(button.dataset.location);return current===key||current.startsWith(key+'\\');}).sort((a,b)=>b.dataset.location.length-a.dataset.location.length||Number(a.closest('.nav-item')?.dataset.depth||0)-Number(b.closest('.nav-item')?.dataset.depth||0))[0];
+  buttons.forEach(button=>{const active=button===selected;button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));if(active)button.setAttribute('aria-current','location');else button.removeAttribute('aria-current');});
+  document.querySelectorAll('[data-nav-section]').forEach(button=>{const group=$('#'+button.getAttribute('aria-controls'));button.classList.toggle('section-current',!!selected&&group.hidden&&group.contains(selected));});
 }
 function applyLayout(value) { state.layout = value; if (state.active >= value) state.active = 0; $('#panes').className = `panes layout-${value}`; document.querySelectorAll('[data-layout]').forEach(button => { const active = Number(button.dataset.layout) === value; button.classList.toggle('active', active); button.setAttribute('aria-pressed', active); }); state.panes.forEach((pane, i) => { pane.element.hidden = i >= value; }); setActive(state.active); save();if(window.__quadfinderReady)queueRefresh(state.panes.slice(0,value).map(pane=>tabOf(pane).path)); }
 
@@ -244,12 +245,7 @@ async function init() {
     if(pane.active>=pane.tabs.length)pane.active=0;
     state.panes.push(pane); element.addEventListener('pointerdown',event=>{if(event.button<3)setActive(i);}); renderPane(i);
   }
-  for(const [selector,items] of [['#places',boot.places.filter(place=>place.icon!=='image')],['#drives',boot.drives]]) {
-    $(selector).innerHTML=items.map((place,i)=>`<button data-location="${escapeHTML(place.path)}" data-place="${i}" class="${selector==='#drives'?'drive-button':''}" title="${escapeHTML(place.path)}">${icon(place.icon)}${selector==='#drives'?`<span class="drive-info"><span>${escapeHTML(place.label)}</span>${place.total?`<span class="drive-meter" role="meter" aria-label="${escapeHTML(place.label)} 사용량" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(100*place.used/place.total)}"><i class="drive-fill" data-percent="${Math.round(100*place.used/place.total)}"></i></span><small>${driveSize(place.used)} / ${driveSize(place.total)}</small>`:''}</span>`:`<span>${escapeHTML(place.label)}</span>${place.icon!=='home'?`<span class="place-pin">${icon('pin')}</span>`:''}`}</button>`).join('');
-    $(selector).querySelectorAll('.drive-fill').forEach(bar=>bar.style.width=`${bar.dataset.percent}%`);
-    $(selector).querySelectorAll('button').forEach(button=>button.onclick=()=>{ navigate(state.active,items[Number(button.dataset.place)].path); });
-  }
-  $('#choose-folder').onclick=async()=>{try{const path=await call(api.chooseFolder());if(path){navigate(state.active,path);$('#scope-label').textContent='즐겨찾기 + 추가한 폴더에서 검색';}}catch(error){toast(error.message);}};
+  setupSidebarNavigation(saved?.navigation);
   document.querySelectorAll('[data-window]').forEach(button=>button.onclick=()=>call(api.windowAction(button.dataset.window)).catch(error=>toast(error.message)));
   document.querySelectorAll('[data-layout]').forEach(button=>button.onclick=()=>applyLayout(Number(button.dataset.layout)));
   document.querySelectorAll('[data-filter]').forEach(button=>button.onclick=()=>{state.filter=button.dataset.filter;document.querySelectorAll('[data-filter]').forEach(item=>item.classList.toggle('active',item===button));if(state.query)runSearch();else toast('검색어를 입력하면 선택한 필터가 적용됩니다.');});
