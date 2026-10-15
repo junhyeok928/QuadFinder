@@ -39,7 +39,7 @@ pnpm test       # 실제 파일 시스템 및 검색 워커 테스트
 pnpm smoke      # Electron 시작·실제 파일 목록·스크린샷 검증
 pnpm preview    # http://127.0.0.1:4173 디자인 확인용, 예시 데이터
 pnpm design:check # 시안 크기와 작은 창의 실제 Electron 화면 캡처, 예시 데이터
-pnpm package    # release/QuadFinder-win32-x64/QuadFinder.exe
+pnpm package    # release/0.1.2/QuadFinder-win32-x64/QuadFinder.exe
 ```
 
 ## 검색 범위와 제한

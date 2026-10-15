@@ -24,4 +24,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: QuadFinder-windows-x64
-          path: release/QuadFinder-win32-x64
+          path: release/*/QuadFinder-win32-x64
