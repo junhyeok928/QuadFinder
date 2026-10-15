@@ -1,0 +1,21 @@
+/* Approved palettes: Neutral Black / Silver Light. */
+:root {
+  color-scheme:dark;
+  --bg:#181818; --panel:#181818; --chrome:#202020; --sidebar:#1d1d1d;
+  --line:#343434; --line-strong:#484848; --text:#dedede; --muted:#a5a5a5;
+  --accent:#bcc8d6; --accent-line:#6e7c8e; --selected:#30353b; --hover:#2b2b2b;
+  --raised:#2b2b2b; --popup:#242424; --input:#181818; --scroll:#555555;
+  --primary:#bcc8d6; --on-primary:#181818; --folder:#b6b0a2;
+  --success:#83ba94; --warning:#c8b483; --danger:#df9b98; --danger-fill:#a83240;
+  --overlay:#00000080;
+}
+:root[data-theme="light"] {
+  color-scheme:light;
+  --bg:#ffffff; --panel:#ffffff; --chrome:#f4f6f9; --sidebar:#edf1f6;
+  --line:#d7dee8; --line-strong:#b4bfce; --text:#223044; --muted:#5c6d82;
+  --accent:#245fbe; --accent-line:#6d92ce; --selected:#e0ebfc; --hover:#e7edf6;
+  --raised:#e7edf6; --popup:#ffffff; --input:#ffffff; --scroll:#b4bfce;
+  --primary:#245fbe; --on-primary:#ffffff; --folder:#9a7024;
+  --success:#337349; --warning:#8b651e; --danger:#ac3636; --danger-fill:#b62f40;
+  --overlay:#18203040;
+}

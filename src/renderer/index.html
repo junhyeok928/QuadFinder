@@ -6,6 +6,8 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-src quadfinder:">
   <title>QuadFinder</title>
   <link rel="icon" href="app-icon.ico">
+  <script src="theme-init.js"></script>
+  <link rel="stylesheet" href="themes.css">
   <link rel="stylesheet" href="styles.css">
   <script src="icons.js" defer></script>
   <script src="preview.js" defer></script>
@@ -20,7 +22,7 @@
 <body>
   <header class="titlebar">
     <div class="brand"><img class="brand-icon" src="app-icon.svg" alt=""><strong>QuadFinder</strong></div>
-    <div class="window-controls"><button data-window="minimize" aria-label="최소화">─</button><button data-window="maximize" aria-label="최대화">□</button><button data-window="close" aria-label="닫기">×</button></div>
+    <div class="titlebar-actions"><label class="theme-picker"><span>테마</span><select id="theme-select" aria-label="색상 테마"><option value="dark">뉴트럴 블랙</option><option value="light">실버 라이트</option></select></label><div class="window-controls"><button data-window="minimize" aria-label="최소화">─</button><button data-window="maximize" aria-label="최대화">□</button><button data-window="close" aria-label="닫기">×</button></div></div>
   </header>
   <main class="app-shell">
     <aside class="sidebar" id="sidebar">

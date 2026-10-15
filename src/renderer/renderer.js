@@ -232,6 +232,9 @@ function updateIndex(status) { $('#index-status').textContent = status.error?'�
 
 async function init() {
   const boot=await call(api.bootstrap()); state.boot=boot;
+  const applyTheme=value=>{document.documentElement.dataset.theme=value==='light'?'light':'dark';$('#theme-select').value=document.documentElement.dataset.theme;};
+  applyTheme(boot.layout?.theme||window.quadfinderTheme);
+  $('#theme-select').onchange=async()=>{const previous=document.documentElement.dataset.theme,next=$('#theme-select').value;applyTheme(next);$('#theme-select').disabled=true;try{if(api.setTheme)await call(api.setTheme(next));}catch(error){applyTheme(previous);toast(`테마 저장 실패: ${error.message}`);}finally{$('#theme-select').disabled=false;}};
   if (boot.preview) $('#preview-label').textContent='디자인 미리보기 · 예시 데이터';
   $('#scope-label').textContent=`${boot.roots.length}개 폴더에서 검색`;
   const saved=boot.layout;state.folderViews=saved?.folderViews||{};

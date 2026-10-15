@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
+contextBridge.exposeInMainWorld('quadfinderTheme',process.argv.includes('--quadfinder-theme=light')?'light':'dark');
 if(process.argv.includes('--quadfinder-design-preview')) {
   contextBridge.exposeInMainWorld('quadfinderDesignPreview', true);
 } else contextBridge.exposeInMainWorld('quadfind', Object.freeze({
@@ -29,6 +30,7 @@ if(process.argv.includes('--quadfinder-design-preview')) {
   reindex: () => ipcRenderer.invoke('index:rebuild'),
   saveLayout: state => ipcRenderer.invoke('layout:save', state),
   setZoom:factor=>ipcRenderer.invoke('view:zoom',factor),
+  setTheme:theme=>ipcRenderer.invoke('view:theme',theme),
   adjustZoom:direction=>ipcRenderer.invoke('view:zoom-step',direction),
   onHistory:callback=>{const handler=(_event,direction)=>callback(direction);ipcRenderer.on('navigation:history',handler);return ()=>ipcRenderer.removeListener('navigation:history',handler);},
   onZoom:callback=>{const handler=(_event,factor)=>callback(factor);ipcRenderer.on('view:zoom',handler);return ()=>ipcRenderer.removeListener('view:zoom',handler);},

@@ -178,16 +178,16 @@ async function setup() {
     if(url.hostname==='app'&&url.pathname==='/navigation-state.js')return net.fetch(pathToFileURL(path.join(__dirname,'navigation-state.cjs')).href);
     if(url.hostname==='app'&&url.pathname==='/change-policy.js')return net.fetch(pathToFileURL(path.join(__dirname,'change-policy.cjs')).href);
     if(url.hostname==='app'&&url.pathname==='/view-options.js')return net.fetch(pathToFileURL(path.join(__dirname,'view-options.cjs')).href);
-    const assets = new Set(['index.html', 'styles.css', 'renderer.js', 'features.js', 'view-ui.js', 'sidebar.js', 'icons.js', 'preview.js']);
+    const assets = new Set(['index.html', 'styles.css', 'themes.css', 'theme-init.js', 'renderer.js', 'features.js', 'view-ui.js', 'sidebar.js', 'icons.js', 'preview.js']);
     const file = url.pathname.slice(1) || 'index.html';
     if (url.hostname !== 'app' || !assets.has(file)) return new Response('Not found', { status: 404 });
     return net.fetch(pathToFileURL(path.join(__dirname, 'renderer', file)).href);
   });
   window = new BrowserWindow({ width: designPreview ? 1586 : 1520, height: designPreview ? 992 : 980, minWidth: 1000, minHeight: 680, show: !smoke && !designPreview,
-    icon:path.join(app.getAppPath(),'assets/app-icon.ico'), backgroundColor: '#14181e', title: 'QuadFinder', frame: false,
+    icon:path.join(app.getAppPath(),'assets/app-icon.ico'), backgroundColor: layout?.theme==='light'?'#ffffff':'#181818', title: 'QuadFinder', frame: false,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true,
       backgroundThrottling:!smoke&&!designPreview,
-      additionalArguments: designPreview ? ['--quadfinder-design-preview'] : [] } });
+      additionalArguments: [...(designPreview ? ['--quadfinder-design-preview'] : []),`--quadfinder-theme=${layout?.theme==='light'?'light':'dark'}`] } });
   window.on('app-command',(event,command)=>{
     if(!['browser-backward','browser-forward'].includes(command))return;
     event.preventDefault();send('navigation:history',command==='browser-backward'?-1:1);
@@ -325,6 +325,7 @@ async function readDrives(){
     await writeSettings(clean);
   });
   handle('view:zoom',value=>{if(typeof value!=='number'||!Number.isFinite(value))throw new Error('올바른 배율을 입력하세요.');return setZoom(value);});
+  handle('view:theme',async theme=>{if(!['dark','light'].includes(theme))throw new Error('올바른 테마를 선택하세요.');await writeSettings({theme});window.setBackgroundColor(theme==='light'?'#ffffff':'#181818');return theme;});
   handle('view:zoom-step',direction=>{if(direction!==1&&direction!==-1)throw new Error('올바르지 않은 배율 변경입니다.');return setZoom(zoomFactor+direction*.1);});
   handle('window:action', action => {
     if (action === 'minimize') window.minimize();
@@ -342,6 +343,10 @@ async function readDrives(){
     await fs.mkdir(path.join(app.getAppPath(),'output'),{recursive:true});
     const capture=async name=>fs.writeFile(path.join(app.getAppPath(),'output',name),(await window.webContents.capturePage()).toPNG());
     await capture('design-refined.png');
+    await window.webContents.executeJavaScript(`(async()=>{document.querySelector('#theme-select').value='light';await document.querySelector('#theme-select').onchange();})()`);
+    await new Promise(resolve=>setTimeout(resolve,120));await capture('design-silver-light.png');
+    await window.webContents.executeJavaScript(`showFileMenu(0,500,300)`);await new Promise(resolve=>setTimeout(resolve,100));await capture('design-light-menu.png');
+    await window.webContents.executeJavaScript(`(async()=>{document.querySelector('#context-menu').hidden=true;document.querySelector('#theme-select').value='dark';await document.querySelector('#theme-select').onchange();})()`);
     await window.webContents.executeJavaScript(`document.querySelectorAll('.view-mode').forEach((select,i)=>{select.value=['details','list','icons','tiles'][i];select.dispatchEvent(new Event('change'));});`);
     await new Promise(resolve=>setTimeout(resolve,300));
     await capture('design-views.png');
@@ -415,11 +420,12 @@ async function readDrives(){
     if(path.dirname(functionSmokeRoot)!==smokeOutputRoot||!path.basename(functionSmokeRoot).startsWith('functional-smoke-'))throw new Error('Unexpected test directory');
     await fs.rm(functionSmokeRoot,{recursive:true,force:true});functionSmokeRoot=null;
     result.zoom=await require('../scripts/zoom-smoke.cjs').run({window,stateFile:stateFile(),output:path.join(app.getAppPath(),'output'),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,200));await saveQueue;}});
+    result.theme=await require('../scripts/theme-smoke.cjs').run({window,stateFile:stateFile(),output:path.join(app.getAppPath(),'output'),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,200));await saveQueue;}});
     await fs.mkdir(path.join(app.getAppPath(), 'output'), { recursive: true });
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.png'), (await window.webContents.capturePage()).toPNG());
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
-    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && Object.values(result.views).every(Boolean) && result.viewRestored && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.sidebar.passed && result.refresh.passed && result.mouseHistory.passed && result.viewOptions.passed && result.fileOperations.passed && result.zoom.passed ? 0 : 1);
+    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && Object.values(result.views).every(Boolean) && result.viewRestored && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.sidebar.passed && result.refresh.passed && result.mouseHistory.passed && result.viewOptions.passed && result.fileOperations.passed && result.zoom.passed && result.theme.passed ? 0 : 1);
   }
 }
 app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.show();window.focus();}});
