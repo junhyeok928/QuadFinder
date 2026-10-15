@@ -12,10 +12,12 @@ using System.Windows.Forms;
 class ShellBridge : Form {
   static JavaScriptSerializer json=new JavaScriptSerializer(){MaxJsonLength=16000000};
   IContextMenu menu; IContextMenu2 menu2; IContextMenu3 menu3;
+  [DllImport("kernel32.dll",CharSet=CharSet.Unicode)] static extern uint GetDriveType(string root);
   [STAThread] static int Main(){
     SetProcessDPIAware();Console.InputEncoding=Encoding.UTF8;Console.OutputEncoding=new UTF8Encoding(false);
     try{var input=json.Deserialize<Dictionary<string,object>>(Console.In.ReadToEnd());object result;
       string mode=(string)input["mode"];
+      if(mode=="network-drives"){result=Enumerable.Range(65,26).Select(i=>((char)i)+":\\").Where(p=>GetDriveType(p)==4).ToArray();Console.WriteLine(json.Serialize(new {ok=true,value=result}));return 0;}
       if(mode=="attributes")result=Paths(input).Select(p=>{try{var a=File.GetAttributes(p);return new {path=p,hidden=(a&FileAttributes.Hidden)!=0,system=(a&FileAttributes.System)!=0,readOnly=(a&FileAttributes.ReadOnly)!=0};}catch{return new {path=p,hidden=false,system=false,readOnly=false};}}).ToArray();
       else if(mode=="clipboard-write") {var data=new DataObject();var paths=new StringCollection();paths.AddRange(Paths(input));data.SetFileDropList(paths);data.SetData("Preferred DropEffect",new MemoryStream(BitConverter.GetBytes((string)input["kind"]=="move"?2:5)));Clipboard.SetDataObject(data,true);result=true;}
       else if(mode=="clipboard-read") {var data=Clipboard.GetDataObject();var files=Clipboard.ContainsFileDropList()?Clipboard.GetFileDropList().Cast<string>().ToArray():new string[0];var effect=data==null?null:data.GetData("Preferred DropEffect") as MemoryStream;result=new {paths=files,kind=effect!=null&&effect.Length>=4&&(BitConverter.ToInt32(effect.ToArray(),0)&2)!=0?"move":"copy"};}

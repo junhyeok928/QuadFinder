@@ -15,19 +15,20 @@ function localPath(value) {
   return path.normalize(value);
 }
 
-async function listDirectory(value) {
+async function listDirectory(value, {signal, include = () => true} = {}) {
   const directory = localPath(value);
-  const dirents = (await fs.readdir(directory, { withFileTypes: true })).filter(item=>!item.name.startsWith('.quadfinder-'));
+  const dirents = (await fs.readdir(directory, { withFileTypes: true })).filter(item=>!item.name.startsWith('.quadfinder-')&&include(path.join(directory,item.name)));
   const entries = [];
   // Bounded batches avoid flooding the filesystem with stat requests.
   for (let offset = 0; offset < dirents.length; offset += 32) {
+    signal?.throwIfAborted();
     entries.push(...await Promise.all(dirents.slice(offset, offset + 32).map(async item => {
       const fullPath = path.join(directory, item.name);
       try {
         const stat = await fs.lstat(fullPath);
         return { name: item.name, path: fullPath, parent: directory, directory: item.isDirectory(),
           link: item.isSymbolicLink(), size: stat.size, modified: stat.mtimeMs, created:stat.birthtimeMs, accessed:stat.atimeMs, hidden:item.name.startsWith('.'), extension: path.extname(item.name).toLowerCase() };
-      } catch { return null; }
+      } catch(error) { if(signal&&!['ENOENT','ENOTDIR'].includes(error.code))throw error;return null; }
     })));
   }
   return { path: directory, parent: path.dirname(directory), entries: entries.filter(Boolean).sort(compareEntries) };

@@ -11,8 +11,8 @@ test('unchanged snapshots skip rendering; access-time reads do not cause repaint
   for(const patch of [{size:2},{modified:5},{hidden:true},{name:'b.txt'},{readOnly:true}])assert(!sameEntries([entry],[{...entry,...patch}]));
   assert(!sameEntries([entry],[]));assert(sameEntries([entry,{...entry,path:'C:\\b.txt'}],[{...entry,path:'C:\\b.txt'},entry]));
 });
-test('index scope includes drive and UNC share roots',()=>{
+test('path boundaries accept UNC while indexing excludes network shares',()=>{
   const {within,indexable}=require('../src/index-paths.cjs');
   assert(within('C:\\Docs\\a.txt','C:\\'));assert(within('\\\\NAS\\share\\a.txt','\\\\NAS\\share\\'));
-  assert(indexable('\\\\NAS\\share\\a.txt',['\\\\NAS\\share']));assert(!within('\\\\NAS\\share2\\a.txt','\\\\NAS\\share'));
+  assert(!indexable('\\\\NAS\\share\\a.txt',['\\\\NAS\\share']));assert(indexable('C:\\Docs\\a.txt',['C:\\']));assert(!within('\\\\NAS\\share2\\a.txt','\\\\NAS\\share'));
 });

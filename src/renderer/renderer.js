@@ -228,7 +228,7 @@ async function runSearch() {
   try { const result=await call(api.search(state.query,state.filter)); if(token!==state.request||tabOf(pane)!==tab||!tab.search)return; tab.entries=result.entries;tab.selection=new Set([...selection(tab)].filter(value=>result.entries.some(entry=>entry.path===value)));tab.total=result.total; tab.loading=false; renderPane(0); }
   catch(error) { if(token!==state.request)return; tab.error=error.message; tab.loading=false; renderPane(0); }
 }
-function updateIndex(status) { $('#index-status').textContent = status.error?'검색 인덱스 오류':status.indexing?'파일 인덱싱 중…':status.limited?'인덱스 한도 도달 (25만 항목)':'인덱스 준비 완료'; $('#index-count').textContent=`${status.count.toLocaleString()}개 파일·폴더`; $('.status-dot').classList.toggle('busy',status.indexing); $('#index-status').title = status.error || `${status.skipped||0}개 폴더 접근 불가 · 최신 파일 반영은 새로고침 버튼 사용`; if(state.query&&!status.indexing)queueRefresh([]); }
+function updateIndex(status) { $('#index-status').textContent = status.error?'검색 인덱스 오류':status.indexing?`파일 인덱싱 중 · ${(status.scanned||0).toLocaleString()}개 폴더 확인`:status.skipped?'인덱스 확인 완료 · 일부 폴더 접근 불가':status.limited?'인덱스 한도 도달 (25만 항목)':'인덱스 준비 완료'; $('#index-count').textContent=`${status.count.toLocaleString()}개 파일·폴더`; $('.status-dot').classList.toggle('busy',status.indexing); $('#index-status').title = status.error || [status.current,`${status.skipped||0}개 폴더 접근 불가 · 네트워크 폴더는 인덱싱 제외`,...(status.warnings||[]).map(item=>`${item.code}: ${item.path}`),status.cacheError&&`캐시 저장 실패: ${status.cacheError}`].filter(Boolean).join('\n'); if(state.query&&!status.indexing)queueRefresh([]); }
 
 async function init() {
   const boot=await call(api.bootstrap()); state.boot=boot;

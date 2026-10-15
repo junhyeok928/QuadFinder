@@ -23,6 +23,9 @@ test('index cache loads, deduplicates overlapping roots and refreshes after chan
     const initial=message(worker,value=>value.type==='status'&&value.indexing),ready=message(worker,value=>value.type==='status'&&!value.indexing);
     assert.equal((await initial).count,8);assert.equal((await ready).count,2);
     assert.equal(JSON.parse(await fs.readFile(cachePath,'utf8')).entries.length,2);
+    const unchanged=await fs.readFile(cachePath,'utf8'),unchangedTime=(await fs.stat(cachePath)).mtimeMs;
+    const same=message(worker,value=>value.type==='status'&&!value.indexing);worker.postMessage({type:'rebuild',roots:[files,path.join(files,'nested')]});await same;
+    assert.equal(await fs.readFile(cachePath,'utf8'),unchanged);assert.equal((await fs.stat(cachePath)).mtimeMs,unchangedTime);
     await fs.writeFile(path.join(files,'second.txt'),'second');
     const refreshed=message(worker,value=>value.type==='status'&&!value.indexing);worker.postMessage({type:'rebuild',roots:[files]});assert.equal((await refreshed).count,3);
     const result=message(worker,value=>value.type==='results'&&value.id===2);worker.postMessage({id:2,query:'*.txt',filter:'documents'});assert.equal((await result).total,2);

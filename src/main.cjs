@@ -52,7 +52,9 @@ let indexTimer, changedTimer, rootsSave=Promise.resolve();
 const changedPaths=new Set(),changedFolders=new Set();
 let refreshAll=false,watchedFolderKey='';
 const {key:pathKey}=require('./change-policy.cjs');
-const {indexable}=require('./index-paths.cjs');
+const {indexable,networkPath}=require('./index-paths.cjs');
+let networkDrives=[];
+const indexExclusions=()=>[app.getPath('userData'),...networkDrives];
 const rootWatchers=[],folderWatchers=[];
 const stateFile = () => path.join(app.getPath('userData'), 'layout.json');
 const rootsFile = () => path.join(app.getPath('userData'),'search-roots.json');
@@ -61,7 +63,7 @@ function internalChange(value){const settings=app.getPath('userData'),normalized
 function filesChanged(values){
   const paths=Array.isArray(values)?values.filter(value=>!internalChange(value)):null;
   if(paths&&!paths.length)return;
-  if(paths)for(const value of paths){changedFolders.add(value);if(indexable(value,roots,[app.getPath('userData')]))changedPaths.add(value);}
+  if(paths)for(const value of paths){changedFolders.add(value);if(indexable(value,roots,indexExclusions()))changedPaths.add(value);}
   else refreshAll=true;
   clearTimeout(changedTimer);changedTimer=setTimeout(function flush(){if(operations?.active()){changedTimer=setTimeout(flush,350);return;}send('files:changed',refreshAll?null:[...changedFolders]);changedFolders.clear();refreshAll=false;scheduleIndex();},350);
 }
@@ -69,9 +71,9 @@ function scheduleIndex(){clearTimeout(indexTimer);indexTimer=setTimeout(()=>{con
 function watchRoots(){
   rootWatchers.splice(0).forEach(watcher=>watcher.close());
   if(smoke||designPreview)return;
-  for(const root of roots)try{const watcher=watch(root,{recursive:true,persistent:false},(_event,name)=>{
+  for(const root of roots.filter(root=>!networkPath(root,networkDrives)))try{const watcher=watch(root,{recursive:true,persistent:false},(_event,name)=>{
     const changed=name?path.resolve(root,String(name)):root;
-    if(!indexable(changed,roots,[app.getPath('userData')]))return;
+    if(!indexable(changed,roots,indexExclusions()))return;
     filesChanged([changed]);
   });watcher.on('error',()=>{});rootWatchers.push(watcher);}catch{}
 }
@@ -115,22 +117,26 @@ function startIndex() {
   for (const { resolve } of pending.values()) resolve({ entries: [], total: 0, indexing: true });
   pending.clear();
   indexStatus = { indexing: true, count: 0, skipped: 0, limited: false };
-  worker = new Worker(path.join(__dirname, 'index-worker.cjs'), { workerData: { roots,excludePaths:[app.getPath('userData')],cachePath:smoke?null:path.join(app.getPath('userData'),'index-cache.json') } });
+  worker = new Worker(path.join(__dirname, 'index-worker.cjs'), { workerData: { roots,excludePaths:indexExclusions(),cachePath:smoke?null:path.join(app.getPath('userData'),'index-cache.json') } });
   worker.on('message', message => {
     if (message.type === 'results') {
-      enrich(message.entries).then(entries=>pending.get(message.id)?.resolve({...message,entries})).catch(error=>pending.get(message.id)?.reject(error)).finally(()=>pending.delete(message.id));
+      enrich(message.entries).catch(()=>message.entries).then(entries=>pending.get(message.id)?.resolve({...message,entries})).finally(()=>pending.delete(message.id));
     } else {
       indexStatus = message.type === 'error' ? { ...indexStatus, indexing: false, error: message.message } : message;
       if (!window.isDestroyed()) window.webContents.send('index:status', indexStatus);
     }
   });
-  worker.on('error', error => {
+  const activeWorker=worker;
+  const failed=error=>{
+    if(worker!==activeWorker)return;
     indexStatus = { ...indexStatus, indexing: false, error: error.message };
     if (!window.isDestroyed()) window.webContents.send('index:status', indexStatus);
     for (const { reject } of pending.values()) reject(error);
     pending.clear();
     worker=null;
-  });
+  };
+  worker.on('error',failed);
+  worker.on('exit',code=>failed(new Error(`검색 인덱스 작업이 종료되었습니다 (${code}). 다시 검색하면 복구합니다.`)));
 }
 
 function handle(channel, callback) {
@@ -155,6 +161,15 @@ async function setup() {
   }
   try { layout = JSON.parse(await fs.readFile(stateFile(), 'utf8')); } catch { layout = null; }
   zoomFactor=designPreview?1:normalizeZoom(layout?.zoomFactor);
+  if(process.platform==='win32')networkDrives=await windowsShell.request({mode:'network-drives'});
+  const removedRoots=roots.filter(root=>networkPath(root,networkDrives));
+  roots=roots.filter(root=>!networkPath(root,networkDrives));
+  if(removedRoots.length&&!smoke&&!designPreview){
+    const navigation=normalizeNavigation(layout?.navigation);
+    navigation.favorites=[...new Set([...navigation.favorites,...removedRoots])];
+    await writeSettings({navigation});
+    await fs.writeFile(rootsFile(),JSON.stringify({roots},null,2));
+  }
   if(smoke&&layout)layout={...layout,panes:Array.from({length:4},()=>({active:0,tabs:[{path:roots[0]}]}))};
   protocol.handle('quadfinder', async request => {
     const url = new URL(request.url);
@@ -218,7 +233,7 @@ async function readDrives(){
   }
   handle('navigation:drives',readDrives);
   handle('bootstrap', async () => {const drives=await readDrives();
-    return { places, drives, roots, layout, zoomFactor, indexStatus, jobs:operations.snapshot(), version: app.getVersion(), smoke };
+    return { places, drives, roots, networkDrives, layout, zoomFactor, indexStatus, jobs:operations.snapshot(), version: app.getVersion(), smoke };
   });
   handle('files:validate-folder',async value=>{const folder=localPath(value);if(!(await fs.stat(folder)).isDirectory())throw new Error('폴더 경로를 입력하세요.');return folder;});
   handle('files:folders',async value=>{const folder=localPath(value),items=await fs.readdir(folder,{withFileTypes:true});const entries=items.filter(item=>item.isDirectory()&&!item.isSymbolicLink()&&!item.name.startsWith('.quadfinder-')).map(item=>({name:item.name,path:path.join(folder,item.name),directory:true}));return (await enrich(entries)).filter(entry=>!entry.hidden).sort((a,b)=>a.name.localeCompare(b.name,'ko',{numeric:true}));});
@@ -247,7 +262,7 @@ async function readDrives(){
     const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
     if (result.canceled) return null;
     const directory = localPath(result.filePaths[0]);
-    if(addToIndex&&!roots.some(root=>pathKey(root)===pathKey(directory))){roots.push(directory);await saveRoots();}
+    if(addToIndex&&!networkPath(directory,networkDrives)&&!roots.some(root=>pathKey(root)===pathKey(directory))){roots.push(directory);await saveRoots();}
     return directory;
   });
   handle('files:open', async value => {
@@ -286,13 +301,15 @@ async function readDrives(){
   handle('operations:clear',()=>operations.clear());
   handle('roots:remove',async value=>{roots=roots.filter(root=>pathKey(root)!==pathKey(localPath(value)));await saveRoots();return roots;});
   handle('roots:add',async value=>{
-    const root=localPath(value);if(!(await fs.stat(root)).isDirectory())throw new Error('검색할 폴더를 입력하세요.');
-    if(!roots.some(existing=>existing.toLowerCase()===root.toLowerCase()))roots.push(root);
-    await saveRoots();return roots;
+    const root=localPath(value);
+    if(networkPath(root,networkDrives))throw new Error('네트워크 폴더는 검색 인덱싱에서 제외됩니다. 즐겨찾기로 추가하면 폴더 탐색은 가능합니다.');
+    if(!(await fs.stat(root)).isDirectory())throw new Error('검색할 폴더를 입력하세요.');
+    if(!roots.some(existing=>pathKey(existing)===pathKey(root))){roots.push(root);await saveRoots();}return roots;
   });
   handle('search', (query, filter) => {
     if (typeof query !== 'string' || query.length > 500 || !['all', 'documents', 'images', 'recent'].includes(filter)) throw new Error('잘못된 검색 조건입니다.');
-    return new Promise((resolve, reject) => { const id = ++searchId; pending.set(id, { resolve, reject }); worker.postMessage({ id, query, filter }); });
+    if(!worker)startIndex();
+    return new Promise((resolve, reject) => { const id = ++searchId;const timer=setTimeout(()=>{pending.delete(id);reject(new Error('검색 응답 시간이 초과되었습니다. 다시 검색해 주세요.'));},20000);pending.set(id, { resolve:value=>{clearTimeout(timer);resolve(value);}, reject:error=>{clearTimeout(timer);reject(error);} }); worker.postMessage({ id, query, filter }); });
   });
   handle('index:rebuild', () => { startIndex(); return roots; });
   handle('layout:save', async value => {
