@@ -27,7 +27,7 @@ function bindRows(index,rows,sorted){
     row.ondblclick=()=>openEntry(index,entry);
     row.onkeydown=event=>{
       if(event.key==='Enter'&&!event.altKey&&!event.ctrlKey){event.preventDefault();openEntry(index,entry);}
-      if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();const next=event.key==='ArrowDown'?row.nextElementSibling:row.previousElementSibling;if(next?.dataset.row!==undefined){const item=sorted[Number(next.dataset.row)];if(!event.ctrlKey)chooseEntry(index,item,event,sorted);next.focus();}}
+      if(['ArrowDown','ArrowUp','ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();const columns=getComputedStyle(rows).gridTemplateColumns.split(' ').filter(v=>v&&v!=='none').length||1;const step=({ArrowDown:columns,ArrowUp:-columns,ArrowLeft:-1,ArrowRight:1})[event.key];const next=rows.querySelector(`[data-row="${Number(row.dataset.row)+step}"]`);if(next){const item=sorted[Number(next.dataset.row)];if(!event.ctrlKey)chooseEntry(index,item,event,sorted);next.focus();}}
       if(event.key===' '){event.preventDefault();chooseEntry(index,entry,{ctrlKey:true},sorted);}
     };
     row.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();if(!selection(tab).has(entry.path))chooseEntry(index,entry,{},sorted);showFileMenu(index,event.clientX,event.clientY);};

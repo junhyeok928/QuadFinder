@@ -30,3 +30,19 @@ test('index cache loads, deduplicates overlapping roots and refreshes after chan
     const removed=message(worker,value=>value.type==='status'&&!value.indexing);worker.postMessage({type:'rebuild',roots:[files]});assert.equal((await removed).count,2);
   }finally{await worker?.terminate();assert(path.basename(root).startsWith('quadfinder-index-cache-'));await fs.rm(root,{recursive:true,force:true});}
 });
+
+test('incremental updates keep unrelated entries, remove deleted trees and ignore internal paths',async()=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'quadfinder-index-cache-'));let worker;
+  try{
+    const files=path.join(root,'files'),cachePath=path.join(root,'cache.json');await fs.mkdir(files);await fs.writeFile(path.join(files,'stable.txt'),'stable');
+    worker=new Worker(path.join(__dirname,'../src/index-worker.cjs'),{workerData:{roots:[files],cachePath}});
+    await message(worker,v=>v.type==='status'&&!v.indexing);
+    const update=async paths=>{const ready=message(worker,v=>v.type==='status'&&!v.indexing);worker.postMessage({type:'update',paths});return ready;};
+    const nested=path.join(files,'nested');await fs.mkdir(nested);await fs.writeFile(path.join(nested,'new.txt'),'new');
+    assert.equal((await update([nested,path.join(nested,'new.txt')])).count,3);
+    let result=message(worker,v=>v.type==='results'&&v.id===9);worker.postMessage({id:9,query:'stable',filter:'all'});assert.equal((await result).total,1);
+    const cached=await fs.readFile(cachePath,'utf8');await update([path.join(nested,'new.txt')]);assert.equal(await fs.readFile(cachePath,'utf8'),cached);
+    await fs.rm(nested,{recursive:true});assert.equal((await update([nested])).count,1);
+    const {indexable}=require('../src/index-paths.cjs');assert.equal(indexable(path.join(files,'.git','index'),[files]),false);assert.equal(indexable(path.join(files,'node_modules','foo'),[files]),false);assert.equal(indexable(path.join(files,'.quadfinder-temp'),[files]),false);assert.equal(indexable(root,[files]),false);assert.equal(indexable(path.join(files,'settings','index.json'),[files],[path.join(files,'settings')]),false);
+  }finally{await worker?.terminate();assert(path.basename(root).startsWith('quadfinder-index-cache-'));await fs.rm(root,{recursive:true,force:true});}
+});

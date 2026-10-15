@@ -41,20 +41,24 @@ function setZoom(value,persist=true){
 let operations;
 let functionSmokeRoot=null;
 let indexTimer, changedTimer, rootsSave=Promise.resolve();
-let fallbackIndexTimer;
+const changedPaths=new Set();
+const {indexable}=require('./index-paths.cjs');
 const rootWatchers=[],folderWatchers=[];
 const stateFile = () => path.join(app.getPath('userData'), 'layout.json');
 const rootsFile = () => path.join(app.getPath('userData'),'search-roots.json');
 function send(channel,value){if(window&&!window.isDestroyed())window.webContents.send(channel,value);}
-function filesChanged(){clearTimeout(changedTimer);changedTimer=setTimeout(()=>{if(operations?.active()){filesChanged();return;}send('files:changed');scheduleIndex();},350);}
-function scheduleIndex(){clearTimeout(indexTimer);indexTimer=setTimeout(()=>startIndex(),1000);}
+function filesChanged(values=[]){
+  if(Array.isArray(values))for(const value of values)if(indexable(value,roots,[app.getPath('userData')]))changedPaths.add(value);
+  clearTimeout(changedTimer);changedTimer=setTimeout(()=>{if(operations?.active()){filesChanged();return;}send('files:changed');scheduleIndex();},350);
+}
+function scheduleIndex(){clearTimeout(indexTimer);indexTimer=setTimeout(()=>{const paths=[...changedPaths];changedPaths.clear();if(paths.length&&worker)worker.postMessage({type:'update',paths});},1000);}
 function watchRoots(){
   rootWatchers.splice(0).forEach(watcher=>watcher.close());
   if(smoke||designPreview)return;
   for(const root of roots)try{const watcher=watch(root,{recursive:true,persistent:false},(_event,name)=>{
-    const changed=name?path.resolve(root,String(name)).toLowerCase():null,settings=app.getPath('userData').toLowerCase();
-    if(changed&&(changed===settings||changed.startsWith(settings+path.sep)))return;
-    filesChanged();
+    const changed=name?path.resolve(root,String(name)):root;
+    if(!indexable(changed,roots,[app.getPath('userData')]))return;
+    filesChanged([changed]);
   });watcher.on('error',()=>{});rootWatchers.push(watcher);}catch{}
 }
 async function saveRoots(){
@@ -194,7 +198,7 @@ async function setup() {
     if(!/\.(png|jpe?g|webp|bmp|gif|avif)$/i.test(file))return null;
     const stat=await fs.stat(file);
     if(!stat.isFile() || stat.size>40*1024*1024)return null;
-    try { const image=await nativeImage.createThumbnailFromPath(file,{width:104,height:62});return image.isEmpty()?null:image.toDataURL(); }
+    try { const image=await nativeImage.createThumbnailFromPath(file,{width:256,height:160});return image.isEmpty()?null:image.toDataURL(); }
     catch { return null; }
   });
   handle('files:choose', async (addToIndex=true) => {
@@ -216,13 +220,13 @@ async function setup() {
     return true;
   });
   handle('files:reveal', async value => { const file = localPath(value); await fs.access(file); shell.showItemInFolder(file); });
-  handle('files:mkdir', async(...args)=>{const file=await createFolder(...args);filesChanged();return file;});
-  handle('files:rename',async(source,name)=>{const target=await renameItem(source,name);filesChanged();return target;});
+  handle('files:mkdir', async(...args)=>{const file=await createFolder(...args);filesChanged([file]);return file;});
+  handle('files:rename',async(source,name)=>{const target=await renameItem(source,name);filesChanged([source,target]);return target;});
   handle('files:watch',async values=>{
     if(!Array.isArray(values)||values.length>4)throw new Error('잘못된 폴더 목록입니다.');
     folderWatchers.splice(0).forEach(watcher=>watcher.close());
     if(smoke)return;
-    for(const value of new Set(values.map(localPath)))try{const watcher=watch(value,{persistent:false},filesChanged);watcher.on('error',()=>{});folderWatchers.push(watcher);}catch{}
+    for(const value of new Set(values.map(localPath)))try{const watcher=watch(value,{persistent:false},(_event,name)=>filesChanged([name?path.resolve(value,String(name)):value]));watcher.on('error',()=>{});folderWatchers.push(watcher);}catch{}
   });
   handle('files:paths',async values=>{if(!Array.isArray(values)||values.length>10000)throw new Error('잘못된 경로 목록입니다.');return values.map(localPath);});
   handle('operations:start',async input=>{
@@ -251,7 +255,7 @@ async function setup() {
     if (!value || ![1, 2, 4].includes(value.layout) || !Array.isArray(value.panes) || value.panes.length !== 4) throw new Error('잘못된 레이아웃입니다.');
     const clean = { layout: value.layout, sidebarWidth: Number.isFinite(value.sidebarWidth) ? Math.max(150,Math.min(400,Math.round(value.sidebarWidth))) : 184, panes: value.panes.map(pane => {
       if (!Array.isArray(pane.tabs) || pane.tabs.length < 1 || pane.tabs.length > 20) throw new Error('탭 개수를 확인하세요.');
-      return { active: Math.max(0, Math.min(pane.tabs.length - 1, Number(pane.active) || 0)), tabs: pane.tabs.map(tab => ({ path: localPath(tab.path) })) };
+      return { active: Math.max(0, Math.min(pane.tabs.length - 1, Number(pane.active) || 0)), tabs: pane.tabs.map(tab => ({ path: localPath(tab.path),view:['details','list','icons','tiles'].includes(tab.view)?tab.view:'details' })) };
     }) };
     await writeSettings(clean);
   });
@@ -264,7 +268,6 @@ async function setup() {
   });
   if(!designPreview) startIndex();
   watchRoots();
-  if(!smoke&&!designPreview){fallbackIndexTimer=setInterval(scheduleIndex,60000);fallbackIndexTimer.unref();}
   await window.loadURL('quadfinder://app/index.html');
   if(designPreview){
     const deadline=Date.now()+15000;
@@ -274,6 +277,10 @@ async function setup() {
     await fs.mkdir(path.join(app.getAppPath(),'output'),{recursive:true});
     const capture=async name=>fs.writeFile(path.join(app.getAppPath(),'output',name),(await window.webContents.capturePage()).toPNG());
     await capture('design-refined.png');
+    await window.webContents.executeJavaScript(`document.querySelectorAll('.view-mode').forEach((select,i)=>{select.value=['details','list','icons','tiles'][i];select.dispatchEvent(new Event('change'));});`);
+    await new Promise(resolve=>setTimeout(resolve,300));
+    await capture('design-views.png');
+    await window.webContents.executeJavaScript(`document.querySelectorAll('.view-mode').forEach(select=>{select.value='details';select.dispatchEvent(new Event('change'));});`);
     const checks=await window.webContents.executeJavaScript(`({ready:window.__quadfinderReady===true,rows:document.querySelectorAll('.file-row').length,colourFiles:document.querySelectorAll('.file-icon.word,.file-icon.excel,.file-icon.pdf').length,toolbarHeight:document.querySelector('.search-toolbar').getBoundingClientRect().height,firstPaneY:document.querySelector('.pane').getBoundingClientRect().y,overflow:document.documentElement.scrollWidth>innerWidth})`);
     checks.sidebarResize=await checkSidebarResize();
     window.setSize(1000,680);
@@ -317,6 +324,7 @@ async function setup() {
     })()`);
     const thumbnailResult=await window.webContents.executeJavaScript(`window.quadfind.thumbnail(${JSON.stringify(path.join(app.getAppPath(),'docs','design-concept.png'))})`);
     result.thumbnailWorks=thumbnailResult.ok && /^data:image\/png;base64,/.test(thumbnailResult.value);
+    result.views=await window.webContents.executeJavaScript(`(()=>{const results={};const pane=document.querySelector('.pane');for(const mode of ['details','list','icons','tiles']){const select=pane.querySelector('.view-mode');select.value=mode;select.dispatchEvent(new Event('change'));const table=pane.querySelector('.file-table'),row=pane.querySelector('.file-row');results[mode]=table.classList.contains('view-'+mode)&&!!row&&(getComputedStyle(pane.querySelector('.columns')).display==='none')===(mode!=='details');}return results;})()`);
     result.sidebarResize=await checkSidebarResize();
     await new Promise(resolve=>setTimeout(resolve,250));
     await saveQueue;
@@ -324,6 +332,8 @@ async function setup() {
     await window.loadURL('quadfinder://app/index.html');
     const restoreDeadline=Date.now()+10000;
     while(Date.now()<restoreDeadline && !(await window.webContents.executeJavaScript('window.__quadfinderReady===true')))await new Promise(resolve=>setTimeout(resolve,50));
+    result.viewRestored=await window.webContents.executeJavaScript(`document.querySelector('.view-mode').value==='tiles'`);
+    await window.webContents.executeJavaScript(`document.querySelector('.view-mode').value='details';document.querySelector('.view-mode').dispatchEvent(new Event('change'));`);
     result.sidebarRestored=await window.webContents.executeJavaScript('document.querySelector("#sidebar").getBoundingClientRect().width===194');
     functionSmokeRoot=await fs.mkdtemp(path.join(app.getAppPath(),'output','functional-smoke-'));
     result.fileOperations=await require('../scripts/functional-smoke.cjs').run({window,root:functionSmokeRoot});
@@ -337,10 +347,10 @@ async function setup() {
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.png'), (await window.webContents.capturePage()).toPNG());
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
-    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.fileOperations.passed && result.zoom.passed ? 0 : 1);
+    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && Object.values(result.views).every(Boolean) && result.viewRestored && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.fileOperations.passed && result.zoom.passed ? 0 : 1);
   }
 }
 app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.show();window.focus();}});
 if(ownsInstance)app.whenReady().then(setup).catch(error => { console.error(error); app.exit(1); });
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', event => {if(operations?.active()){event.preventDefault();window?.show();return;}if(zoomSaveTimer){event.preventDefault();clearTimeout(zoomSaveTimer);zoomSaveTimer=null;writeSettings({}).then(()=>app.quit()).catch(error=>send('view:error',error.message));return;}worker?.terminate();rootWatchers.forEach(watcher=>watcher.close());folderWatchers.forEach(watcher=>watcher.close());clearTimeout(indexTimer);clearTimeout(changedTimer);clearInterval(fallbackIndexTimer);});
+app.on('before-quit', event => {if(operations?.active()){event.preventDefault();window?.show();return;}if(zoomSaveTimer){event.preventDefault();clearTimeout(zoomSaveTimer);zoomSaveTimer=null;writeSettings({}).then(()=>app.quit()).catch(error=>send('view:error',error.message));return;}worker?.terminate();rootWatchers.forEach(watcher=>watcher.close());folderWatchers.forEach(watcher=>watcher.close());clearTimeout(indexTimer);clearTimeout(changedTimer);});

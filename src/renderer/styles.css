@@ -212,3 +212,21 @@ dl { font-size: 12px; }
 dt { color: #839bb1; margin-top: 13px; }
 dd { color: #c3d2e1; margin: 5px 0; overflow-wrap: anywhere; }
 @container (max-width: 575px) { .file-actions button:not([data-file-action="menu"]) { display: none; } }
+
+.view-mode { flex-shrink:0; max-width:102px; padding:4px; color:#b8c4d3; background:#151d23; border:1px solid #34424d; border-radius:4px; font:inherit; font-size:11px; }
+.file-table:not(.view-details) .columns { display:none; }
+.file-table:not(.view-details) .rows { display:grid; gap:4px; padding:8px; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); align-content:start; }
+.file-table:not(.view-details) .file-row { display:flex; height:36px; min-width:0; border-radius:4px; }
+.file-table:not(.view-details) .file-date,.file-table:not(.view-details) .file-size,.file-table:not(.view-details) .file-extra { display:none; }
+.file-table:not(.view-details) .empty-state,.file-table:not(.view-details) .load-more { grid-column:1/-1; }
+.file-table.view-icons .rows { grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); }
+.file-table.view-tiles .rows { grid-template-columns:repeat(auto-fill,minmax(144px,1fr)); }
+.file-table.view-icons .file-row,.file-table.view-tiles .file-row { height:116px; align-items:flex-start; }
+.file-table.view-tiles .file-row { height:166px; }
+.file-table.view-icons .file-name,.file-table.view-tiles .file-name { flex-direction:column; width:100%; gap:8px; padding:10px 6px; text-align:center; }
+.file-table.view-icons .file-name>span:last-child,.file-table.view-tiles .file-name>span:last-child { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; font-size:12px; line-height:18px; }
+.file-table.view-icons .file-icon,.file-table.view-icons .file-icon svg { width:44px; height:46px; margin:0; }
+.file-table.view-tiles .file-icon,.file-table.view-tiles .file-icon svg { width:88px; height:96px; margin:0; }
+.file-table.view-icons .file-icon.thumbnail { width:72px; }
+.file-table.view-tiles .file-icon.thumbnail { width:128px; }
+.file-table.view-icons .file-icon img,.file-table.view-tiles .file-icon img { height:100%; object-fit:contain; border:0; }

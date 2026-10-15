@@ -50,7 +50,7 @@ function fileType(entry) {
 }
 function sizeLabel(entry) { if (entry.directory) return '—'; const bytes = entry.size; if (bytes < 1024) return `${bytes} B`; if (bytes < 1048576) return `${(bytes / 1024).toFixed(0)} KB`; if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`; return `${(bytes / 1073741824).toFixed(1)} GB`; }
 function dateLabel(value) { const d = new Date(value); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
-function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => call(api.saveLayout({ layout: state.layout, sidebarWidth: state.sidebarWidth, panes: state.panes.map(pane => ({ active: pane.active, tabs: pane.tabs.map(tab => ({path:tab.path})) })) })).catch(error => toast(`레이아웃 저장 실패: ${error.message}`)), 150); }
+function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => call(api.saveLayout({ layout: state.layout, sidebarWidth: state.sidebarWidth, panes: state.panes.map(pane => ({ active: pane.active, tabs: pane.tabs.map(tab => ({path:tab.path,view:tab.view})) })) })).catch(error => toast(`레이아웃 저장 실패: ${error.message}`)), 150); }
 function setupSidebar(savedWidth) {
   const sidebar=$('#sidebar'), handle=$('#sidebar-resizer');
   let drag=null;
@@ -103,11 +103,12 @@ function applyLayout(value) { state.layout = value; if (state.active >= value) s
 
 function renderPane(index) {
   const pane = state.panes[index], tab = tabOf(pane), element = pane.element;
-  element.innerHTML = `<div class="tabs-bar"><div class="tabs">${pane.tabs.map((item,i) => `<div class="tab ${pane.active===i?'current':''}"><button data-tab="${i}" title="${escapeHTML(item.path)}">${icon(tabIcon(item))}<span>${escapeHTML(item.search?'검색 결과':tabLabel(item.path))}</span></button><button class="close-tab" data-close="${i}" aria-label="${escapeHTML(tabLabel(item.path))} 탭 닫기">×</button></div>`).join('')}</div><button class="new-tab" title="새 탭 (Ctrl+T)" aria-label="패널 ${index+1} 새 탭">${icon('plus')}</button></div>
+  element.innerHTML = `<div class="tabs-bar"><div class="tabs">${pane.tabs.map((item,i) => `<div class="tab ${pane.active===i?'current':''}"><button data-tab="${i}" title="${escapeHTML(item.path)}">${icon(tabIcon(item))}<span>${escapeHTML(item.search?'검색 결과':tabLabel(item.path))}</span></button><button class="close-tab" data-close="${i}" aria-label="${escapeHTML(tabLabel(item.path))} 탭 닫기">×</button></div>`).join('')}</div><select class="view-mode" aria-label="패널 ${index+1} 보기 방식">${Object.entries({details:"상세 목록",list:"간단 목록",icons:"작은 아이콘",tiles:"큰 아이콘"}).map(([value,label])=>`<option value="${value}" ${tab.view===value?"selected":""}>${label}</option>`).join("")}</select><button class="new-tab" title="새 탭 (Ctrl+T)" aria-label="패널 ${index+1} 새 탭">${icon('plus')}</button></div>
     <div class="navigation"><button data-action="back" title="뒤로" aria-label="패널 ${index+1} 뒤로" ${tab.cursor<=0?'disabled':''}>${icon('left')}</button><button data-action="forward" title="앞으로" aria-label="패널 ${index+1} 앞으로" ${tab.cursor>=tab.history.length-1?'disabled':''}>${icon('right')}</button><button data-action="up" title="상위 폴더" aria-label="패널 ${index+1} 상위 폴더">${icon('up')}</button><div class="address ${tab.search?'search-address':''}" title="${escapeHTML(tab.search?'즐겨찾기와 추가한 폴더에서 검색':tab.path+' · 더블클릭 또는 Ctrl+L로 경로 입력')}">${tab.search?`${icon('drive')}<span class="search-scope">검색 폴더</span>`:`<div class="breadcrumbs">${breadcrumbs(tab.path)}</div>`}<input class="path-input" hidden aria-label="패널 ${index+1} 폴더 경로" value="${escapeHTML(tab.path)}" ${tab.search?'readonly':''}></div><button class="refresh-button" data-action="refresh" title="새로고침" aria-label="패널 ${index+1} 새로고침">${icon('refresh')}</button><button data-action="mkdir" title="새 폴더" aria-label="패널 ${index+1} 새 폴더" ${tab.search?'disabled':''}>${icon('new-folder')}</button></div>
-    <div class="file-table" role="listbox" aria-label="패널 ${index+1} 파일 목록"><div class="columns"><button data-sort="name">이름</button><button data-sort="modified">${tab.search?'위치':'수정한 날짜'}</button><button class="size-label" data-sort="size">크기</button><span class="file-extra">${tab.search?'수정한 날짜':'유형'}</span></div><div class="rows"></div></div><div class="pane-footer"><span class="item-count"></span><span class="selection-info"></span><div class="file-actions"><button data-file-action="copy" title="복사 (Ctrl+C)">복사</button><button data-file-action="cut" title="잘라내기 (Ctrl+X)">잘라내기</button><button data-file-action="paste" title="붙여넣기 (Ctrl+V)">붙여넣기</button><button data-file-action="menu" title="파일 작업 메뉴" aria-label="패널 ${index+1} 파일 작업 메뉴">⋯</button></div></div>`;
+    <div class="file-table view-${tab.view}" role="listbox" aria-label="패널 ${index+1} 파일 목록"><div class="columns"><button data-sort="name">이름</button><button data-sort="modified">${tab.search?'위치':'수정한 날짜'}</button><button class="size-label" data-sort="size">크기</button><span class="file-extra">${tab.search?'수정한 날짜':'유형'}</span></div><div class="rows"></div></div><div class="pane-footer"><span class="item-count"></span><span class="selection-info"></span><div class="file-actions"><button data-file-action="copy" title="복사 (Ctrl+C)">복사</button><button data-file-action="cut" title="잘라내기 (Ctrl+X)">잘라내기</button><button data-file-action="paste" title="붙여넣기 (Ctrl+V)">붙여넣기</button><button data-file-action="menu" title="파일 작업 메뉴" aria-label="패널 ${index+1} 파일 작업 메뉴">⋯</button></div></div>`;
   element.querySelectorAll('[data-tab]').forEach(button => button.onclick = () => { pane.active = Number(button.dataset.tab); setActive(index); renderPane(index); load(index); save(); });
   element.querySelectorAll('[data-close]').forEach(button => button.onclick = () => { if (pane.tabs.length === 1) return toast('마지막 탭은 닫을 수 없습니다.'); pane.tabs.splice(Number(button.dataset.close), 1); pane.active = Math.min(pane.active, pane.tabs.length-1); renderPane(index); load(index); save(); });
+  element.querySelector('.view-mode').onchange=event=>{tab.view=event.target.value;setActive(index);renderPane(index);save();};
   element.querySelector('.new-tab').onclick = () => newTab(index);
   element.querySelector('.path-input').onkeydown = event => { if (event.key === 'Enter') navigate(index, event.target.value); if(event.key==='Escape')renderPane(index); };
   element.querySelector('.path-input').onblur = () => { if(tabOf(pane)===tab && !tab.loading)renderPane(index); };
@@ -141,7 +142,7 @@ function renderRows(index) {
   element.querySelector('.item-count').textContent = tab.search ? `${(tab.total||0).toLocaleString()}개 검색 결과${tab.total>1000?' · 상위 1,000개 표시':''}` : `${tab.entries.length.toLocaleString()}개 항목${tab.entries.length>2000?' · 상위 2,000개 표시':''}`;
   updateSelection(index);
 }
-function makeTab(path) { return {path, entries:[], history:[path], cursor:0, loading:false, search:false, request:0}; }
+function makeTab(path,view='details') { return {path,view:['details','list','icons','tiles'].includes(view)?view:'details', entries:[], history:[path], cursor:0, loading:false, search:false, request:0}; }
 function editPath(index) { const pane=state.panes[index];if(tabOf(pane).search)return;const input=pane.element.querySelector('.path-input');pane.element.querySelector('.breadcrumbs').hidden=true;input.hidden=false;input.focus();input.select(); }
 async function navigate(index, path, history=true, preserve=false) {
   const pane = state.panes[index], tab = tabOf(pane), previous = tab.path;
@@ -162,7 +163,7 @@ async function navigate(index, path, history=true, preserve=false) {
   if (tabOf(pane)===tab) renderPane(index);
 }
 async function load(index,preserve=false) { const tab=tabOf(state.panes[index]); if (tab.search) return runSearch(); return navigate(index,tab.path,false,preserve); }
-function newTab(index) { const pane=state.panes[index]; if (pane.tabs.length>=20) return toast('패널당 최대 20개 탭을 사용할 수 있습니다.'); pane.tabs.push(makeTab(tabOf(pane).path)); pane.active=pane.tabs.length-1; setActive(index); renderPane(index); load(index); save(); }
+function newTab(index) { const pane=state.panes[index]; if (pane.tabs.length>=20) return toast('패널당 최대 20개 탭을 사용할 수 있습니다.'); pane.tabs.push(makeTab(tabOf(pane).path,tabOf(pane).view)); pane.active=pane.tabs.length-1; setActive(index); renderPane(index); load(index); save(); }
 async function openEntry(index,entry) {
   if (entry.directory) { if (tabOf(state.panes[index]).search) { const target=state.layout>1?1:0; if (target===index) { newTab(index); } navigate(target,entry.path); setActive(target); } else navigate(index,entry.path); }
   else if (tabOf(state.panes[index]).search) { const target=state.layout>1?1:0; if (target===index) newTab(index); await navigate(target,entry.parent); const tab=tabOf(state.panes[target]); tab.selected=entry.path;tab.selection=new Set([entry.path]); renderRows(target); setActive(target); }
@@ -190,7 +191,7 @@ async function init() {
   for(let i=0;i<4;i++) {
     const element=document.createElement('section'); element.className='pane'; element.setAttribute('aria-label',`탐색 패널 ${i+1}`); $('#panes').append(element);
     const savedPane=saved?.panes?.[i];
-    const pane={element,active:savedPane?.active||0,tabs:(savedPane?.tabs?.length?savedPane.tabs:[{path:defaults[i]||boot.places[0].path}]).map(tab=>makeTab(tab.path)),sort:boot.preview?'none':'name',desc:false};
+    const pane={element,active:savedPane?.active||0,tabs:(savedPane?.tabs?.length?savedPane.tabs:[{path:defaults[i]||boot.places[0].path}]).map(tab=>makeTab(tab.path,tab.view)),sort:boot.preview?'none':'name',desc:false};
     if(pane.active>=pane.tabs.length)pane.active=0;
     state.panes.push(pane); element.addEventListener('pointerdown',()=>setActive(i)); renderPane(i);
   }
