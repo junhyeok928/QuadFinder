@@ -316,7 +316,7 @@ async function readDrives(){
     if (!value || ![1, 2, 4].includes(value.layout) || !Array.isArray(value.panes) || value.panes.length !== 4) throw new Error('잘못된 레이아웃입니다.');
     const folderViews=Object.fromEntries(Object.entries(value.folderViews||{}).slice(-2000).filter(([key])=>{try{localPath(key);return true;}catch{return false;}}).map(([key,options])=>[key,normalizeView(options)]));
     const navigation=normalizeNavigation(value.navigation);
-    for(const field of ['favorites','hidden','order','expanded'])navigation[field]=navigation[field].filter(value=>{try{localPath(value);return true;}catch{return false;}});
+    for(const field of ['favorites','hidden','order','expanded','recent'])navigation[field]=navigation[field].filter(value=>{try{localPath(value);return true;}catch{return false;}});
     navigation.labels=Object.fromEntries(Object.entries(navigation.labels).filter(([value])=>{try{localPath(/^[a-z]:$/i.test(value)?value+'\\':value);return true;}catch{return false;}}));
     const clean = { navigation, folderViews, layout: value.layout, sidebarWidth: Number.isFinite(value.sidebarWidth) ? Math.max(150,Math.min(400,Math.round(value.sidebarWidth))) : 184, panes: value.panes.map(pane => {
       if (!Array.isArray(pane.tabs) || pane.tabs.length < 1 || pane.tabs.length > 20) throw new Error('탭 개수를 확인하세요.');
@@ -413,6 +413,7 @@ async function readDrives(){
     result.fileOperations=await require('../scripts/functional-smoke.cjs').run({window,root:functionSmokeRoot});
     result.refresh=await require('../scripts/refresh-smoke.cjs').run({window,root:functionSmokeRoot,notify:paths=>send('files:changed',paths),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},networkRoot:process.env.QUADFINDER_TEST_NETWORK_ROOT,stateFile:stateFile(),rootsFile:rootsFile()});
     result.sidebar=await require('../scripts/sidebar-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile(),appPath:app.getAppPath()});
+    result.recent=await require('../scripts/recent-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile()});
     result.mouseHistory=await require('../scripts/history-smoke.cjs').run({window,root:functionSmokeRoot});
     await window.webContents.executeJavaScript(`Promise.all(state.panes.map((_pane,index)=>navigate(index,${JSON.stringify(roots[0])})))`);
     await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;
@@ -425,7 +426,7 @@ async function readDrives(){
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.png'), (await window.webContents.capturePage()).toPNG());
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
-    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && Object.values(result.views).every(Boolean) && result.viewRestored && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.sidebar.passed && result.refresh.passed && result.mouseHistory.passed && result.viewOptions.passed && result.fileOperations.passed && result.zoom.passed && result.theme.passed ? 0 : 1);
+    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && Object.values(result.views).every(Boolean) && result.viewRestored && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.sidebar.passed && result.refresh.passed && result.mouseHistory.passed && result.viewOptions.passed && result.fileOperations.passed && result.zoom.passed && result.theme.passed && result.recent.passed ? 0 : 1);
   }
 }
 app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.show();window.focus();}});

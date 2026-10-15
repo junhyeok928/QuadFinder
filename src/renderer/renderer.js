@@ -111,6 +111,7 @@ function syncSidebar(){
   const selected=tab.search?null:buttons.filter(button=>!button.closest('.nav-children[hidden]')).filter(button=>{const key=ChangePolicy.key(button.dataset.location);return current===key||current.startsWith(key+'\\');}).sort((a,b)=>b.dataset.location.length-a.dataset.location.length||Number(a.closest('.nav-item')?.dataset.depth||0)-Number(b.closest('.nav-item')?.dataset.depth||0))[0];
   buttons.forEach(button=>{const active=button===selected;button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));if(active)button.setAttribute('aria-current','location');else button.removeAttribute('aria-current');});
   document.querySelectorAll('[data-nav-section]').forEach(button=>{const group=$('#'+button.getAttribute('aria-controls'));button.classList.toggle('section-current',!!selected&&group.hidden&&group.contains(selected));});
+  syncRecentFolders();
 }
 function applyLayout(value) { state.layout = value; if (state.active >= value) state.active = 0; $('#panes').className = `panes layout-${value}`; document.querySelectorAll('[data-layout]').forEach(button => { const active = Number(button.dataset.layout) === value; button.classList.toggle('active', active); button.setAttribute('aria-pressed', active); }); state.panes.forEach((pane, i) => { pane.element.hidden = i >= value; }); setActive(state.active); save();if(window.__quadfinderReady)queueRefresh(state.panes.slice(0,value).map(pane=>tabOf(pane).path)); }
 
@@ -171,7 +172,7 @@ function historyInput(direction,source){
   lastHistoryInput={direction,source,time:now};return navigateHistory(direction);
 }
 function editPath(index) { const pane=state.panes[index];if(tabOf(pane).search)return;const input=pane.element.querySelector('.path-input');pane.element.querySelector('.breadcrumbs').hidden=true;input.hidden=false;input.focus();input.select(); }
-async function navigate(index, path, history=true, preserve=false) {
+async function navigate(index, path, history=true, preserve=false,recordVisit=true) {
   const pane = state.panes[index], tab = tabOf(pane), previous = tab.path;
   tab.search = false;
   const request = ++tab.request;
@@ -181,6 +182,7 @@ async function navigate(index, path, history=true, preserve=false) {
     if (request !== tab.request) return;
     if(folderKey(previous)!==folderKey(data.path))tab.options=ViewOptions.normalize(state.folderViews[folderKey(data.path)]||{});
     tab.path = data.path; tab.parent = data.parent; tab.entries = data.entries;
+    if(recordVisit&&!preserve)rememberFolder(data.path);
     if(preserve){const existing=new Set(data.entries.map(entry=>entry.path));tab.selection=new Set([...selection(tab)].filter(value=>existing.has(value)));}
     else {tab.selected=null;tab.selection=new Set();tab.anchor=null;tab.limit=2000;}
     if (history && previous !== data.path) { tab.history = tab.history.slice(0,tab.cursor+1); tab.history.push(data.path); tab.cursor = tab.history.length-1; }
@@ -218,7 +220,7 @@ async function refreshSearch(){
     const table=pane.element.querySelector('.file-table'),top=table.scrollTop,left=table.scrollLeft,focused=document.activeElement.closest?.('.file-row'),focusedPath=focused&&pane.element.contains(focused)?focused.title:null;renderRows(0);bindViewFeatures(0);table.scrollTop=top;table.scrollLeft=left;if(focusedPath)Array.from(table.querySelectorAll('.file-row')).find(row=>row.title===focusedPath)?.focus({preventScroll:true});
   }catch(error){toast(`검색 갱신 실패: ${error.message}`);}
 }
-async function load(index,preserve=false) { const tab=tabOf(state.panes[index]);if(preserve)return refreshTab(index);if(tab.search)return runSearch();return navigate(index,tab.path,false); }
+async function load(index,preserve=false) { const tab=tabOf(state.panes[index]);if(preserve)return refreshTab(index);if(tab.search)return runSearch();return navigate(index,tab.path,false,false,false); }
 function newTab(index) { const pane=state.panes[index]; if (pane.tabs.length>=20) return toast('패널당 최대 20개 탭을 사용할 수 있습니다.'); pane.tabs.push(makeTab(tabOf(pane).path,tabOf(pane).view)); pane.active=pane.tabs.length-1; setActive(index); renderPane(index); load(index); save(); }
 async function openEntry(index,entry) {
   if (entry.directory) { if (tabOf(state.panes[index]).search) { const target=state.layout>1?1:0; if (target===index) { newTab(index); } navigate(target,entry.path); setActive(target); } else navigate(index,entry.path); }

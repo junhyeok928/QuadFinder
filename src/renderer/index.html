@@ -29,6 +29,8 @@
       <div class="sidebar-scroll">
         <button class="sidebar-heading" data-nav-section="favorites" aria-expanded="true" aria-controls="favorites-group"><span data-icon="pin"></span><span>즐겨찾기</span><span class="collapse-mark" aria-hidden="true">⌄</span></button>
         <div id="favorites-group"><nav id="places" aria-label="즐겨찾기" role="tree"></nav><nav id="custom-places" aria-label="추가한 폴더" role="tree"></nav><div class="pin-drop-zone" title="폴더를 놓으면 즐겨찾기에 고정합니다">폴더를 여기에 놓아 고정</div></div>
+        <button class="sidebar-heading recent-heading" data-nav-section="recent" aria-expanded="true" aria-controls="recent-group"><span data-icon="clock"></span><span>최근 폴더</span><span class="collapse-mark" aria-hidden="true">⌄</span></button>
+        <div id="recent-group"><nav id="recent-folders" aria-label="최근 방문한 폴더"></nav><button id="clear-recent" title="최근 방문 기록만 지웁니다. 실제 폴더는 유지됩니다." hidden>기록 지우기</button></div>
         <button class="sidebar-heading drives-heading" data-nav-section="pc" aria-expanded="true" aria-controls="pc-group"><span data-icon="desktop-small"></span><span>내 PC</span><span class="collapse-mark" aria-hidden="true">⌄</span></button>
         <div id="pc-group"><nav id="drives" aria-label="드라이브" role="tree"></nav></div>
       </div>
@@ -38,7 +40,7 @@
     <section class="workspace">
       <div class="search-toolbar">
         <label class="search-box"><span data-icon="search"></span><input id="search" aria-label="파일명 검색" placeholder="파일 이름으로 검색하세요" autocomplete="off" spellcheck="false"><kbd>Ctrl K</kbd><button id="clear-search" aria-label="검색어 지우기">×</button></label>
-        <div id="filters" role="group" aria-label="검색 필터"><button data-filter="all" class="active">전체</button><button data-filter="documents">문서</button><button data-filter="images">이미지</button><button data-filter="recent" title="최근 7일 내 수정한 파일">최근 수정</button></div>
+        <div id="filters" role="group" aria-label="검색 필터"><button data-filter="all" class="active">전체</button><button data-filter="documents">문서</button><button data-filter="images">이미지</button></div>
         <div class="layout-switch" role="group" aria-label="패널 배치"><button data-layout="1" title="1분할" aria-label="1분할"><span data-icon="layout1"></span>1</button><button data-layout="2" title="2분할" aria-label="2분할"><span data-icon="layout2"></span>2</button><button data-layout="4" class="active" title="4분할" aria-label="4분할"><span data-icon="layout4"></span>4</button></div>
       </div>
       <div id="panes" class="panes layout-4" aria-label="파일 탐색 패널"></div>
