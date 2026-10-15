@@ -119,7 +119,7 @@ function renderPane(index) {
     const action = button.dataset.action;
     if (action === 'refresh') tab.search ? runSearch() : load(index);
     if (action === 'up') navigate(index, tab.parent || tab.path);
-    if (action === 'back' || action === 'forward') { tab.cursor += action==='back'?-1:1; navigate(index,tab.history[tab.cursor],false); }
+    if (action === 'back' || action === 'forward') navigateHistory(action==='back'?-1:1,index);
     if (action === 'mkdir') { $('#folder-parent').textContent = tab.path; $('#folder-name').value = ''; $('#folder-dialog').showModal(); $('#folder-name').focus(); }
   });
   element.querySelectorAll('[data-sort]').forEach(button => button.onclick = () => { const sort=button.dataset.sort;setView(index,{sort,desc:viewOf(tab).sort===sort?!viewOf(tab).desc:false}); });
@@ -144,6 +144,12 @@ function renderRows(index) {
 }
 function makeTab(path,view='details',savedOptions) {const tab={path,options:ViewOptions.normalize(savedOptions||state.folderViews[folderKey(path)]||{view}),entries:[],history:[path],cursor:0,loading:false,search:false,request:0};Object.defineProperty(tab,'view',{get(){return this.options.view;},set(value){this.options.view=value;}});return tab;}
 
+function navigateHistory(direction,index=state.active) {
+  if(![-1,1].includes(direction)||document.querySelector('dialog[open]'))return;
+  const pane=state.panes[index],tab=tabOf(pane),next=tab.cursor+direction;
+  if(tab.loading||next<0||next>=tab.history.length)return;
+  tab.cursor=next;return navigate(index,tab.history[next],false);
+}
 function editPath(index) { const pane=state.panes[index];if(tabOf(pane).search)return;const input=pane.element.querySelector('.path-input');pane.element.querySelector('.breadcrumbs').hidden=true;input.hidden=false;input.focus();input.select(); }
 async function navigate(index, path, history=true, preserve=false) {
   const pane = state.panes[index], tab = tabOf(pane), previous = tab.path;
@@ -196,7 +202,7 @@ async function init() {
     const pane={element,active:savedPane?.active||0,tabs:(savedPane?.tabs?.length?savedPane.tabs:[{path:defaults[i]||boot.places[0].path}]).map(tab=>makeTab(tab.path,tab.view,tab.options)),sort:boot.preview?'none':'name',desc:false};
     if(boot.preview)pane.tabs.forEach(tab=>tab.options.sort='none');
     if(pane.active>=pane.tabs.length)pane.active=0;
-    state.panes.push(pane); element.addEventListener('pointerdown',()=>setActive(i)); renderPane(i);
+    state.panes.push(pane); element.addEventListener('pointerdown',event=>{if(event.button<3)setActive(i);}); renderPane(i);
   }
   for(const [selector,items] of [['#places',boot.places.filter(place=>place.icon!=='image')],['#drives',boot.drives]]) {
     $(selector).innerHTML=items.map((place,i)=>`<button data-place="${i}" class="${selector==='#drives'?'drive-button':''}" title="${escapeHTML(place.path)}">${icon(place.icon)}${selector==='#drives'?`<span class="drive-info"><span>${escapeHTML(place.label)}</span>${place.total?`<span class="drive-meter" role="meter" aria-label="${escapeHTML(place.label)} 사용량" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(100*place.used/place.total)}"><i class="drive-fill" data-percent="${Math.round(100*place.used/place.total)}"></i></span><small>${driveSize(place.used)} / ${driveSize(place.total)}</small>`:''}</span>`:`<span>${escapeHTML(place.label)}</span>${place.icon!=='home'?`<span class="place-pin">${icon('pin')}</span>`:''}`}</button>`).join('');
@@ -218,9 +224,11 @@ async function init() {
     if(event.ctrlKey&&event.key.toLowerCase()==='t'){event.preventDefault();newTab(state.active);}
     if(event.ctrlKey&&event.key.toLowerCase()==='l'){event.preventDefault();editPath(state.active);}
     if(event.key==='F5'){event.preventDefault();load(state.active);}
+    if(event.altKey&&['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();navigateHistory(event.key==='ArrowLeft'?-1:1);}
     if(event.altKey&&event.key==='ArrowUp'){event.preventDefault();const tab=tabOf(state.panes[state.active]);navigate(state.active,tab.parent||tab.path);}
   });
   applyLayout([1,2,4].includes(saved?.layout)?saved.layout:4);
+  api.onHistory?.(direction=>navigateHistory(direction));
   api.onIndex(updateIndex); updateIndex(boot.indexStatus);
   await Promise.all(state.panes.map((_pane,i)=>load(i)));
   initFeatures(boot);

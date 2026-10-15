@@ -27,6 +27,7 @@ if(process.argv.includes('--quadfinder-design-preview')) {
   saveLayout: state => ipcRenderer.invoke('layout:save', state),
   setZoom:factor=>ipcRenderer.invoke('view:zoom',factor),
   adjustZoom:direction=>ipcRenderer.invoke('view:zoom-step',direction),
+  onHistory:callback=>{const handler=(_event,direction)=>callback(direction);ipcRenderer.on('navigation:history',handler);return ()=>ipcRenderer.removeListener('navigation:history',handler);},
   onZoom:callback=>{const handler=(_event,factor)=>callback(factor);ipcRenderer.on('view:zoom',handler);return ()=>ipcRenderer.removeListener('view:zoom',handler);},
   onViewError:callback=>{const handler=(_event,message)=>callback(message);ipcRenderer.on('view:error',handler);return ()=>ipcRenderer.removeListener('view:error',handler);},
   windowAction: action => ipcRenderer.invoke('window:action', action),

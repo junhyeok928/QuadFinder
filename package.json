@@ -1,7 +1,7 @@
 {
   "name": "quadfinder",
   "productName": "QuadFinder",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "빠른 파일 검색과 다중 패널 탐색을 결합한 Windows 파일 관리자",
   "main": "src/main.cjs",

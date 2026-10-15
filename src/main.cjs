@@ -163,6 +163,10 @@ async function setup() {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true,
       backgroundThrottling:!smoke&&!designPreview,
       additionalArguments: designPreview ? ['--quadfinder-design-preview'] : [] } });
+  window.on('app-command',(event,command)=>{
+    if(!['browser-backward','browser-forward'].includes(command))return;
+    event.preventDefault();send('navigation:history',command==='browser-backward'?-1:1);
+  });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.setZoomMode('isolated');
   window.webContents.on('before-input-event',(event,input)=>{
@@ -364,6 +368,7 @@ async function setup() {
     functionSmokeRoot=await fs.mkdtemp(path.join(app.getAppPath(),'output','functional-smoke-'));
     result.viewOptions=await require('../scripts/view-smoke.cjs').run({window,root:functionSmokeRoot,appPath:app.getAppPath(),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;}});
     result.fileOperations=await require('../scripts/functional-smoke.cjs').run({window,root:functionSmokeRoot});
+    result.mouseHistory=await require('../scripts/history-smoke.cjs').run({window,root:functionSmokeRoot});
     await window.webContents.executeJavaScript(`Promise.all(state.panes.map((_pane,index)=>navigate(index,${JSON.stringify(roots[0])})))`);
     await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;
     const smokeOutputRoot=path.resolve(app.getAppPath(),'output');
@@ -374,7 +379,7 @@ async function setup() {
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.png'), (await window.webContents.capturePage()).toPNG());
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
-    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && Object.values(result.views).every(Boolean) && result.viewRestored && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.viewOptions.passed && result.fileOperations.passed && result.zoom.passed ? 0 : 1);
+    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && Object.values(result.views).every(Boolean) && result.viewRestored && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.mouseHistory.passed && result.viewOptions.passed && result.fileOperations.passed && result.zoom.passed ? 0 : 1);
   }
 }
 app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.show();window.focus();}});
