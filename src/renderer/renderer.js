@@ -7,6 +7,37 @@ function toast(message) { $('#toast').textContent = message; $('#toast').classLi
 async function call(promise) { const result = await promise; if (!result.ok) throw new Error(result.error); return result.value; }
 function tabOf(pane) { return pane.tabs[pane.active]; }
 function basename(path) { return path.replace(/[\\/]$/, '').split(/[\\/]/).pop() || path; }
+function tabLabel(path) { return state.boot?.places.find(place => place.path === path)?.label || basename(path); }
+function tabIcon(tab) { return tab.search ? 'search' : state.boot?.places.find(place => place.path === tab.path)?.icon === 'download' ? 'download' : 'folder-blue'; }
+function breadcrumbs(path) {
+  const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
+  return parts.map((part, index) => `${index ? icon('chevron') : ''}<button data-breadcrumb="${escapeHTML(parts.slice(0,index+1).join('\\')+'\\')}" title="${escapeHTML(part)}">${escapeHTML(part)}</button>`).join('');
+}
+function fileIcon(entry) {
+  if (entry.directory) return 'folder';
+  const ext = entry.name.split('.').pop().toLowerCase();
+  return ({doc:'word',docx:'word',xls:'excel',xlsx:'excel',csv:'excel',ppt:'powerpoint',pptx:'powerpoint',pdf:'pdf',psd:'photoshop',ai:'illustrator',exe:'application',msi:'application',txt:'file',md:'file'})[ext] || fileType(entry);
+}
+function typeLabel(entry) {
+  if (entry.directory) return '파일 폴더';
+  const ext = entry.name.split('.').pop().toLowerCase();
+  return ({docx:'Microsoft Word 문서',doc:'Microsoft Word 문서',xlsx:'Microsoft Excel 워크시트',xls:'Microsoft Excel 워크시트',pptx:'Microsoft PowerPoint 문서',pdf:'PDF 문서',txt:'텍스트 문서',md:'Markdown 문서',csv:'Microsoft Excel CSV',psd:'Adobe Photoshop 문서',ai:'Adobe Illustrator 문서',exe:'응용 프로그램',zip:'압축(ZIP) 폴더',mp4:'MP4 동영상'})[ext] || `${ext.toUpperCase()} ${fileType(entry)==='image'?'이미지':'파일'}`;
+}
+const thumbnails = new Map();
+async function decorateThumbnails(rows, entries) {
+  if (!api.thumbnail) return;
+  const targets = Array.from(rows.querySelectorAll('[data-row]')).filter(row => fileType(entries[Number(row.dataset.row)]) === 'image').slice(0,60);
+  // Restrict concurrent shell thumbnail requests and retain a small, bounded cache.
+  for (let offset=0; offset<targets.length; offset+=4) await Promise.all(targets.slice(offset,offset+4).map(async row => {
+    const entry=entries[Number(row.dataset.row)], key=`${entry.path}:${entry.modified}`;
+    try {
+      let image=thumbnails.get(key);
+      if(image===undefined){image=await call(api.thumbnail(entry.path));if(thumbnails.size>=256)thumbnails.delete(thumbnails.keys().next().value);thumbnails.set(key,image);}
+      const allowed=/^data:image\/(png|jpeg|webp);base64,/.test(image) || (state.boot?.preview && /^data:image\/svg\+xml;base64,/.test(image));
+      if(image && allowed && row.isConnected){const holder=row.querySelector('.file-icon');const img=document.createElement('img');img.src=image;img.alt='';holder.replaceChildren(img);holder.classList.add('thumbnail');}
+    } catch { /* The colour file icon remains when Windows has no thumbnail. */ }
+  }));
+}
 function fileType(entry) {
   if (entry.directory) return 'folder';
   if (/\.(png|jpe?g|svg|gif|webp|bmp|avif)$/i.test(entry.name)) return 'image';
@@ -18,20 +49,23 @@ function fileType(entry) {
   return 'file';
 }
 function sizeLabel(entry) { if (entry.directory) return '—'; const bytes = entry.size; if (bytes < 1024) return `${bytes} B`; if (bytes < 1048576) return `${(bytes / 1024).toFixed(0)} KB`; if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`; return `${(bytes / 1073741824).toFixed(1)} GB`; }
-function dateLabel(value) { const d = new Date(value); return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`; }
+function dateLabel(value) { const d = new Date(value); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
 function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => call(api.saveLayout({ layout: state.layout, panes: state.panes.map(pane => ({ active: pane.active, tabs: pane.tabs.map(tab => ({path:tab.path})) })) })).catch(error => toast(`레이아웃 저장 실패: ${error.message}`)), 150); }
 function setActive(index) { state.active = index; document.querySelectorAll('.pane').forEach((element, i) => element.classList.toggle('active', i === index)); }
 function applyLayout(value) { state.layout = value; if (state.active >= value) state.active = 0; $('#panes').className = `panes layout-${value}`; document.querySelectorAll('[data-layout]').forEach(button => { const active = Number(button.dataset.layout) === value; button.classList.toggle('active', active); button.setAttribute('aria-pressed', active); }); state.panes.forEach((pane, i) => { pane.element.hidden = i >= value; }); setActive(state.active); save(); }
 
 function renderPane(index) {
   const pane = state.panes[index], tab = tabOf(pane), element = pane.element;
-  element.innerHTML = `<div class="tabs-bar"><div class="tabs">${pane.tabs.map((item,i) => `<div class="tab ${pane.active===i?'current':''}"><button data-tab="${i}" title="${escapeHTML(item.path)}">${icon(item.search?'search':'folder')}<span>${escapeHTML(item.search?'검색 결과':basename(item.path))}</span></button><button class="close-tab" data-close="${i}" aria-label="${escapeHTML(basename(item.path))} 탭 닫기">×</button></div>`).join('')}</div><button class="new-tab" title="새 탭 (Ctrl+T)" aria-label="패널 ${index+1} 새 탭">${icon('plus')}</button><span class="pane-number">0${index+1}</span></div>
-    <div class="navigation"><button data-action="back" title="뒤로" aria-label="패널 ${index+1} 뒤로" ${tab.cursor<=0?'disabled':''}>${icon('left')}</button><button data-action="forward" title="앞으로" aria-label="패널 ${index+1} 앞으로" ${tab.cursor>=tab.history.length-1?'disabled':''}>${icon('right')}</button><button data-action="up" title="상위 폴더" aria-label="패널 ${index+1} 상위 폴더">${icon('up')}</button><input class="path-input" aria-label="패널 ${index+1} 폴더 경로" value="${escapeHTML(tab.search?'검색 범위: 즐겨찾기 + 추가한 폴더':tab.path)}" ${tab.search?'readonly':''}><button data-action="refresh" title="새로고침" aria-label="패널 ${index+1} 새로고침">${icon('refresh')}</button><button data-action="mkdir" title="새 폴더" aria-label="패널 ${index+1} 새 폴더" ${tab.search?'disabled':''}>${icon('plus')}</button></div>
-    <div class="file-table" role="listbox" aria-label="패널 ${index+1} 파일 목록"><div class="columns"><button data-sort="name">이름 ${pane.sort==='name'?(pane.desc?'↓':'↑'):''}</button><button data-sort="modified">${tab.search?'위치':'수정한 날짜'} ${pane.sort==='modified'?(pane.desc?'↓':'↑'):''}</button><button class="size-label" data-sort="size">크기 ${pane.sort==='size'?(pane.desc?'↓':'↑'):''}</button></div><div class="rows"></div></div><div class="pane-footer"><span class="item-count"></span><span class="selection-info"></span></div>`;
+  element.innerHTML = `<div class="tabs-bar"><div class="tabs">${pane.tabs.map((item,i) => `<div class="tab ${pane.active===i?'current':''}"><button data-tab="${i}" title="${escapeHTML(item.path)}">${icon(tabIcon(item))}<span>${escapeHTML(item.search?'검색 결과':tabLabel(item.path))}</span></button><button class="close-tab" data-close="${i}" aria-label="${escapeHTML(tabLabel(item.path))} 탭 닫기">×</button></div>`).join('')}</div><button class="new-tab" title="새 탭 (Ctrl+T)" aria-label="패널 ${index+1} 새 탭">${icon('plus')}</button></div>
+    <div class="navigation"><button data-action="back" title="뒤로" aria-label="패널 ${index+1} 뒤로" ${tab.cursor<=0?'disabled':''}>${icon('left')}</button><button data-action="forward" title="앞으로" aria-label="패널 ${index+1} 앞으로" ${tab.cursor>=tab.history.length-1?'disabled':''}>${icon('right')}</button><button data-action="up" title="상위 폴더" aria-label="패널 ${index+1} 상위 폴더">${icon('up')}</button><div class="address ${tab.search?'search-address':''}" title="${escapeHTML(tab.search?'즐겨찾기와 추가한 폴더에서 검색':tab.path+' · 더블클릭 또는 Ctrl+L로 경로 입력')}">${tab.search?`${icon('drive')}<span class="search-scope">검색 폴더</span>`:`<div class="breadcrumbs">${breadcrumbs(tab.path)}</div>`}<input class="path-input" hidden aria-label="패널 ${index+1} 폴더 경로" value="${escapeHTML(tab.path)}" ${tab.search?'readonly':''}></div><button class="refresh-button" data-action="refresh" title="새로고침" aria-label="패널 ${index+1} 새로고침">${icon('refresh')}</button><button data-action="mkdir" title="새 폴더" aria-label="패널 ${index+1} 새 폴더" ${tab.search?'disabled':''}>${icon('new-folder')}</button></div>
+    <div class="file-table" role="listbox" aria-label="패널 ${index+1} 파일 목록"><div class="columns"><button data-sort="name">이름</button><button data-sort="modified">${tab.search?'위치':'수정한 날짜'}</button><button class="size-label" data-sort="size">크기</button><span class="file-extra">${tab.search?'수정한 날짜':'유형'}</span></div><div class="rows"></div></div><div class="pane-footer"><span class="item-count"></span><span class="selection-info"></span></div>`;
   element.querySelectorAll('[data-tab]').forEach(button => button.onclick = () => { pane.active = Number(button.dataset.tab); setActive(index); renderPane(index); load(index); save(); });
   element.querySelectorAll('[data-close]').forEach(button => button.onclick = () => { if (pane.tabs.length === 1) return toast('마지막 탭은 닫을 수 없습니다.'); pane.tabs.splice(Number(button.dataset.close), 1); pane.active = Math.min(pane.active, pane.tabs.length-1); renderPane(index); load(index); save(); });
   element.querySelector('.new-tab').onclick = () => newTab(index);
-  element.querySelector('.path-input').onkeydown = event => { if (event.key === 'Enter') navigate(index, event.target.value); };
+  element.querySelector('.path-input').onkeydown = event => { if (event.key === 'Enter') navigate(index, event.target.value); if(event.key==='Escape')renderPane(index); };
+  element.querySelector('.path-input').onblur = () => { if(tabOf(pane)===tab && !tab.loading)renderPane(index); };
+  element.querySelector('.address').ondblclick = () => editPath(index);
+  element.querySelectorAll('[data-breadcrumb]').forEach(button=>button.onclick=()=>navigate(index,button.dataset.breadcrumb));
   element.querySelectorAll('[data-action]').forEach(button => button.onclick = () => {
     setActive(index);
     const action = button.dataset.action;
@@ -49,9 +83,10 @@ function renderRows(index) {
   if (tab.loading || tab.error || !tab.entries.length) {
     rows.innerHTML = `<div class="empty-state">${icon(tab.search?'search':'folder')}<strong>${tab.loading?'불러오는 중…':tab.error?'폴더를 열 수 없습니다':tab.search?'검색 결과가 없습니다':'폴더가 비어 있습니다'}</strong><small>${escapeHTML(tab.error || (tab.search?'다른 파일명을 입력하거나 검색 폴더를 추가해보세요.':'새 폴더를 만들거나 다른 경로로 이동하세요.'))}</small></div>`;
   } else {
-    const sorted = [...tab.entries].sort((a,b) => Number(b.directory)-Number(a.directory) || (pane.sort==='name'?a.name.localeCompare(b.name,'ko',{numeric:true}):(a[pane.sort]-b[pane.sort])) * (pane.desc?-1:1));
+    const sorted = pane.sort==='none' ? [...tab.entries] : [...tab.entries].sort((a,b) => Number(b.directory)-Number(a.directory) || (pane.sort==='name'?a.name.localeCompare(b.name,'ko',{numeric:true}):(a[pane.sort]-b[pane.sort])) * (pane.desc?-1:1));
     // The renderer is deliberately bounded; the index retains the full supported search scope.
-    rows.innerHTML = sorted.slice(0,2000).map((entry,i) => `<div class="file-row ${tab.selected===entry.path?'selected':''}" role="option" aria-selected="${tab.selected===entry.path}" tabindex="0" data-row="${i}" title="${escapeHTML(entry.path)}"><span class="file-name"><span class="file-icon ${fileType(entry)}">${icon(fileType(entry))}</span><span>${escapeHTML(entry.name)}${entry.link?' ↗':''}</span></span><span class="file-date" title="${escapeHTML(tab.search?entry.parent:new Date(entry.modified).toLocaleString('ko-KR'))}">${escapeHTML(tab.search?entry.parent:dateLabel(entry.modified))}</span><span class="file-size">${sizeLabel(entry)}</span></div>`).join('');
+    rows.innerHTML = sorted.slice(0,2000).map((entry,i) => `<div class="file-row ${tab.selected===entry.path?'selected':''}" role="option" aria-selected="${tab.selected===entry.path}" tabindex="0" data-row="${i}" title="${escapeHTML(entry.path)}"><span class="file-name"><span class="file-icon ${fileIcon(entry)}">${icon(fileIcon(entry))}</span><span>${escapeHTML(entry.name)}${entry.link?' ↗':''}</span></span><span class="file-date" title="${escapeHTML(tab.search?entry.parent:new Date(entry.modified).toLocaleString('ko-KR'))}">${escapeHTML(tab.search?entry.parent:dateLabel(entry.modified))}</span><span class="file-size">${sizeLabel(entry)}</span><span class="file-extra" title="${escapeHTML(typeLabel(entry))}">${escapeHTML(tab.search?dateLabel(entry.modified):typeLabel(entry))}</span></div>`).join('');
+    decorateThumbnails(rows, sorted);
     rows.querySelectorAll('[data-row]').forEach(row => {
       const entry = sorted[Number(row.dataset.row)];
       row.onclick = () => { tab.selected = entry.path; setActive(index); rows.querySelectorAll('.file-row').forEach(item => { const selected = item===row; item.classList.toggle('selected',selected); item.setAttribute('aria-selected',selected); }); element.querySelector('.selection-info').textContent = entry.name; };
@@ -64,6 +99,7 @@ function renderRows(index) {
   element.querySelector('.selection-info').textContent = tab.selected?basename(tab.selected):'';
 }
 function makeTab(path) { return {path, entries:[], history:[path], cursor:0, loading:false, search:false, request:0}; }
+function editPath(index) { const pane=state.panes[index];if(tabOf(pane).search)return;const input=pane.element.querySelector('.path-input');pane.element.querySelector('.breadcrumbs').hidden=true;input.hidden=false;input.focus();input.select(); }
 async function navigate(index, path, history=true) {
   const pane = state.panes[index], tab = tabOf(pane), previous = tab.path;
   tab.search = false;
@@ -103,19 +139,19 @@ async function init() {
   if (boot.preview) $('#preview-label').textContent='디자인 미리보기 · 예시 데이터';
   $('#scope-label').textContent=`${boot.roots.length}개 폴더에서 검색`;
   const saved=boot.layout;
-  const defaults=[boot.places.find(item=>item.icon==='document')?.path,boot.places.find(item=>item.icon==='download')?.path,boot.places.find(item=>item.icon==='image')?.path,boot.places[0]?.path];
+  const defaults=[boot.places.find(item=>item.icon==='document')?.path,boot.places.find(item=>item.icon==='document')?.path,boot.places.find(item=>item.icon==='image')?.path,boot.places.find(item=>item.icon==='download')?.path];
   for(let i=0;i<4;i++) {
     const element=document.createElement('section'); element.className='pane'; element.setAttribute('aria-label',`탐색 패널 ${i+1}`); $('#panes').append(element);
     const savedPane=saved?.panes?.[i];
-    const pane={element,active:savedPane?.active||0,tabs:(savedPane?.tabs?.length?savedPane.tabs:[{path:defaults[i]||boot.places[0].path}]).map(tab=>makeTab(tab.path)),sort:'name',desc:false};
+    const pane={element,active:savedPane?.active||0,tabs:(savedPane?.tabs?.length?savedPane.tabs:[{path:defaults[i]||boot.places[0].path}]).map(tab=>makeTab(tab.path)),sort:boot.preview?'none':'name',desc:false};
     if(pane.active>=pane.tabs.length)pane.active=0;
     state.panes.push(pane); element.addEventListener('pointerdown',()=>setActive(i)); renderPane(i);
   }
-  for(const [selector,items] of [['#places',boot.places],['#drives',boot.drives]]) {
-    $(selector).innerHTML=items.map((place,i)=>`<button data-place="${i}" title="${escapeHTML(place.path)}">${icon(place.icon)}<span>${escapeHTML(place.label)}</span></button>`).join('');
+  for(const [selector,items] of [['#places',boot.places.filter(place=>place.icon!=='image')],['#drives',boot.drives]]) {
+    $(selector).innerHTML=items.map((place,i)=>`<button data-place="${i}" class="${selector==='#drives'?'drive-button':''}" title="${escapeHTML(place.path)}">${icon(place.icon)}${selector==='#drives'?`<span class="drive-info"><span>${escapeHTML(place.label)}</span>${place.total?`<span class="drive-meter" role="meter" aria-label="${escapeHTML(place.label)} 사용량" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(100*place.used/place.total)}"><i class="drive-fill" data-percent="${Math.round(100*place.used/place.total)}"></i></span><small>${driveSize(place.used)} / ${driveSize(place.total)}</small>`:''}</span>`:`<span>${escapeHTML(place.label)}</span>${place.icon!=='home'?`<span class="place-pin">${icon('pin')}</span>`:''}`}</button>`).join('');
+    $(selector).querySelectorAll('.drive-fill').forEach(bar=>bar.style.width=`${bar.dataset.percent}%`);
     $(selector).querySelectorAll('button').forEach(button=>button.onclick=()=>{ navigate(state.active,items[Number(button.dataset.place)].path); document.querySelectorAll('nav button').forEach(item=>item.classList.toggle('active',item===button)); });
   }
-  $('#home').onclick=()=>navigate(state.active,boot.places[0].path);
   $('#choose-folder').onclick=async()=>{try{const path=await call(api.chooseFolder());if(path){navigate(state.active,path);$('#scope-label').textContent='즐겨찾기 + 추가한 폴더에서 검색';}}catch(error){toast(error.message);}};
   document.querySelectorAll('[data-window]').forEach(button=>button.onclick=()=>call(api.windowAction(button.dataset.window)).catch(error=>toast(error.message)));
   document.querySelectorAll('[data-layout]').forEach(button=>button.onclick=()=>applyLayout(Number(button.dataset.layout)));
@@ -129,12 +165,15 @@ async function init() {
   document.addEventListener('keydown',event=>{
     if(event.ctrlKey&&event.key.toLowerCase()==='k'){event.preventDefault();$('#search').focus();$('#search').select();}
     if(event.ctrlKey&&event.key.toLowerCase()==='t'){event.preventDefault();newTab(state.active);}
+    if(event.ctrlKey&&event.key.toLowerCase()==='l'){event.preventDefault();editPath(state.active);}
     if(event.key==='F5'){event.preventDefault();load(state.active);}
     if(event.altKey&&event.key==='ArrowUp'){event.preventDefault();const tab=tabOf(state.panes[state.active]);navigate(state.active,tab.parent||tab.path);}
   });
   applyLayout([1,2,4].includes(saved?.layout)?saved.layout:4);
   api.onIndex(updateIndex); updateIndex(boot.indexStatus);
   await Promise.all(state.panes.map((_pane,i)=>load(i)));
+  if(boot.preview){$('#search').value='프로젝트';await runSearch();const tab=tabOf(state.panes[0]);tab.selected=tab.entries.find(entry=>entry.name==='프로젝트 제안서.docx')?.path;renderRows(0);}
   window.__quadfinderReady=true;
 }
+function driveSize(bytes){return bytes>=1024**4?`${(bytes/1024**4).toFixed(2)} TB`:`${Math.round(bytes/1024**3)} GB`;}
 init().catch(error=>{toast(error.message);$('#index-status').textContent='시작 실패';});

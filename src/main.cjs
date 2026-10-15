@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session, nativeImage } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -6,6 +6,7 @@ const { Worker } = require('node:worker_threads');
 const { localPath, listDirectory, createFolder } = require('./files.cjs');
 protocol.registerSchemesAsPrivileged([{ scheme: 'quadfinder', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 const smoke = process.argv.includes('--smoke-test');
+const designPreview = !app.isPackaged && process.argv.includes('--design-preview');
 if (smoke) app.setPath('userData', path.join(app.getAppPath(), 'output', 'smoke-profile'));
 let window;
 let worker;
@@ -67,9 +68,10 @@ async function setup() {
     if (url.hostname !== 'app' || !assets.has(file)) return new Response('Not found', { status: 404 });
     return net.fetch(pathToFileURL(path.join(__dirname, 'renderer', file)).href);
   });
-  window = new BrowserWindow({ width: 1520, height: 980, minWidth: 1000, minHeight: 680, show: !smoke,
+  window = new BrowserWindow({ width: designPreview ? 1586 : 1520, height: designPreview ? 992 : 980, minWidth: 1000, minHeight: 680, show: !smoke && !designPreview,
     backgroundColor: '#14181e', title: 'QuadFinder', frame: false,
-    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true,
+      additionalArguments: designPreview ? ['--quadfinder-design-preview'] : [] } });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
@@ -77,11 +79,24 @@ async function setup() {
     const drives = [];
     if (process.platform === 'win32') for (let code = 65; code <= 90; code++) {
       const root = String.fromCharCode(code) + ':\\';
-      try { await fs.access(root); drives.push({ label: `로컬 디스크 (${root.slice(0, 2)})`, path: root, icon: 'drive' }); } catch { /* Not mounted. */ }
+      try {
+        await fs.access(root);
+        let capacity={};
+        try { const stats=await fs.statfs(root);capacity={total:stats.blocks*stats.bsize,used:(stats.blocks-stats.bfree)*stats.bsize}; } catch { /* Some volumes don't report capacity. */ }
+        drives.push({ label: `로컬 디스크 (${root.slice(0, 2)})`, path: root, icon: 'drive', ...capacity });
+      } catch { /* Not mounted. */ }
     }
     return { places, drives, roots, layout, indexStatus, version: app.getVersion(), smoke };
   });
   handle('files:list', listDirectory);
+  handle('files:thumbnail', async value => {
+    const file=localPath(value);
+    if(!/\.(png|jpe?g|webp|bmp|gif|avif)$/i.test(file))return null;
+    const stat=await fs.stat(file);
+    if(!stat.isFile() || stat.size>40*1024*1024)return null;
+    try { const image=await nativeImage.createThumbnailFromPath(file,{width:104,height:62});return image.isEmpty()?null:image.toDataURL(); }
+    catch { return null; }
+  });
   handle('files:choose', async () => {
     const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
     if (result.canceled) return null;
@@ -124,14 +139,35 @@ async function setup() {
     if (action === 'maximize') window.isMaximized() ? window.unmaximize() : window.maximize();
     if (action === 'close') window.close();
   });
-  startIndex();
+  if(!designPreview) startIndex();
   await window.loadURL('quadfinder://app/index.html');
+  if(designPreview){
+    const deadline=Date.now()+15000;
+    while(Date.now()<deadline && !(await window.webContents.executeJavaScript('window.__quadfinderReady === true')))await new Promise(resolve=>setTimeout(resolve,100));
+    await window.webContents.executeJavaScript('document.fonts.ready');
+    await new Promise(resolve=>setTimeout(resolve,400));
+    await fs.mkdir(path.join(app.getAppPath(),'output'),{recursive:true});
+    const capture=async name=>fs.writeFile(path.join(app.getAppPath(),'output',name),(await window.webContents.capturePage()).toPNG());
+    await capture('design-refined.png');
+    const checks=await window.webContents.executeJavaScript(`({ready:window.__quadfinderReady===true,rows:document.querySelectorAll('.file-row').length,colourFiles:document.querySelectorAll('.file-icon.word,.file-icon.excel,.file-icon.pdf').length,toolbarHeight:document.querySelector('.search-toolbar').getBoundingClientRect().height,firstPaneY:document.querySelector('.pane').getBoundingClientRect().y,overflow:document.documentElement.scrollWidth>innerWidth})`);
+    window.setSize(1000,680);
+    await new Promise(resolve=>setTimeout(resolve,200));
+    await capture('design-compact.png');
+    checks.compactOverflow=await window.webContents.executeJavaScript('document.documentElement.scrollWidth>innerWidth || document.querySelector(".search-toolbar").getBoundingClientRect().right>innerWidth');
+    await fs.writeFile(path.join(app.getAppPath(),'output','design-checks.json'),JSON.stringify(checks,null,2));
+    console.log(JSON.stringify(checks));
+    app.exit(checks.ready && checks.rows>=20 && checks.colourFiles>0 && !checks.overflow && !checks.compactOverflow ? 0 : 1);
+  }
   if (smoke) {
     const deadline = Date.now() + 15000;
     while (Date.now() < deadline && !(await window.webContents.executeJavaScript('window.__quadfinderReady === true'))) await new Promise(resolve => setTimeout(resolve, 100));
     const result = await window.webContents.executeJavaScript(`(async () => {
       const waitFor = async predicate => { const deadline = Date.now()+10000; while(!predicate()){if(Date.now()>deadline)throw new Error('UI wait timeout');await new Promise(resolve=>setTimeout(resolve,50));} };
       const initialRows=document.querySelectorAll('.file-row').length;
+      const pathInput=document.querySelector('.pane:first-child .path-input');
+      document.dispatchEvent(new KeyboardEvent('keydown',{key:'l',ctrlKey:true,bubbles:true}));
+      const pathEditWorks=!pathInput.hidden && document.activeElement===pathInput;
+      pathInput.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
       document.querySelector('[data-layout="2"]').click();
       const twoPane=document.querySelectorAll('.pane:not([hidden])').length===2;
       document.querySelector('[data-layout="4"]').click();
@@ -146,13 +182,15 @@ async function setup() {
       const filterWorks=true;
       document.querySelector('#clear-search').click();
       await waitFor(()=>document.querySelectorAll('.pane:first-child .file-row').length===1 && !document.querySelector('.pane:first-child .tab.current').textContent.includes('검색 결과'));
-      return {ready:window.__quadfinderReady===true,panes:document.querySelectorAll('.pane').length,rows:initialRows,twoPane,searchWorks,filterWorks,title:document.title};
+      return {ready:window.__quadfinderReady===true,panes:document.querySelectorAll('.pane').length,rows:initialRows,twoPane,searchWorks,filterWorks,pathEditWorks,title:document.title};
     })()`);
+    const thumbnailResult=await window.webContents.executeJavaScript(`window.quadfind.thumbnail(${JSON.stringify(path.join(app.getAppPath(),'docs','design-concept.png'))})`);
+    result.thumbnailWorks=thumbnailResult.ok && /^data:image\/png;base64,/.test(thumbnailResult.value);
     await fs.mkdir(path.join(app.getAppPath(), 'output'), { recursive: true });
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.png'), (await window.webContents.capturePage()).toPNG());
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
-    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks ? 0 : 1);
+    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks ? 0 : 1);
   }
 }
 app.whenReady().then(setup).catch(error => { console.error(error); app.exit(1); });

@@ -1,7 +1,10 @@
 const { contextBridge, ipcRenderer } = require('electron');
-contextBridge.exposeInMainWorld('quadfind', Object.freeze({
+if(process.argv.includes('--quadfinder-design-preview')) {
+  contextBridge.exposeInMainWorld('quadfinderDesignPreview', true);
+} else contextBridge.exposeInMainWorld('quadfind', Object.freeze({
   bootstrap: () => ipcRenderer.invoke('bootstrap'),
   list: path => ipcRenderer.invoke('files:list', path),
+  thumbnail: path => ipcRenderer.invoke('files:thumbnail', path),
   chooseFolder: () => ipcRenderer.invoke('files:choose'),
   open: path => ipcRenderer.invoke('files:open', path),
   reveal: path => ipcRenderer.invoke('files:reveal', path),

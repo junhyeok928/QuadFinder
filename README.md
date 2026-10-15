@@ -4,7 +4,13 @@ Everything의 빠른 파일명 검색과 Q-Dir의 다중 패널 탐색 경험을
 
 ![확정한 디자인 시안](docs/design-concept.png)
 
-## 현재 구현 — v0.1.0
+## 현재 구현 — v0.1.1
+
+시안의 한 줄 검색 도구 모음, 컬러 파일 아이콘, 폴더 경로 표시, 패널 비율과 글자 크기를 반영했습니다. 드라이브 사용량은 실제 로컬 볼륨에서 읽고, 이미지 파일은 Windows에서 제공하는 썸네일을 표시합니다.
+
+아래는 현재 UI를 예시 데이터로 실행한 화면입니다. 일반 앱 실행은 실제 로컬 파일을 사용합니다.
+
+![현재 구현 화면 — 예시 데이터](docs/implementation-preview.png)
 
 - 실제 로컬 폴더 탐색, 경로 직접 입력, 뒤로/앞으로/상위 폴더 이동
 - 1·2·4분할 화면, 패널별 독립 탭, 이름·날짜·크기 정렬
@@ -30,6 +36,7 @@ Electron 설치 시 바이너리가 설치되지 않았다면 `node node_modules
 pnpm test       # 실제 파일 시스템 및 검색 워커 테스트
 pnpm smoke      # Electron 시작·실제 파일 목록·스크린샷 검증
 pnpm preview    # http://127.0.0.1:4173 디자인 확인용, 예시 데이터
+pnpm design:check # 시안 크기와 작은 창의 실제 Electron 화면 캡처, 예시 데이터
 pnpm package    # release/QuadFinder-win32-x64/QuadFinder.exe
 ```
 
@@ -45,6 +52,7 @@ pnpm package    # release/QuadFinder-win32-x64/QuadFinder.exe
 |---|---|
 | Ctrl K | 검색창 포커스 |
 | Ctrl T | 활성 패널 새 탭 |
+| Ctrl L | 활성 패널 경로 입력 (또는 경로 더블클릭) |
 | Alt ↑ | 상위 폴더 |
 | F5 | 활성 패널 새로고침 |
 | Enter | 선택한 파일 열기 / 폴더 이동 |
