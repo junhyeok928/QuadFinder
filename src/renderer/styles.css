@@ -193,6 +193,19 @@ dialog input { display: block; width: 100%; padding: 10px; border: 1px solid #45
 .root-path-row { display: flex; gap: 8px; margin-top: 16px; }
 .root-path-row input { flex: 1; min-width: 0; padding: 9px; border: 1px solid #455970; background: #131b24; border-radius: 4px; font-size: 12px; }
 .root-path-row button { background: #2b3a48; padding: 6px 12px; font-size: 12px; }
+#zoom-reset { min-width: 44px; font-variant-numeric: tabular-nums; }
+@container workspace (max-width: 650px) {
+  .search-toolbar { flex-wrap: wrap; height: auto; row-gap: 8px; }
+  .search-box { flex-basis: 100%; }
+  .layout-switch { margin-left: auto; }
+}
+@media (max-height: 650px) {
+  .panes.layout-4 { grid-template-rows: repeat(2,minmax(220px,1fr)); overflow: auto; }
+}
+@media (max-width: 900px) {
+  .statusbar { gap: 6px; font-size: 11px; }
+  .statusbar #scope-label, .statusbar #preview-label { display: none; }
+}
 #custom-places { max-height: 25vh; overflow: auto; scrollbar-width: thin; }
 #custom-places button > span { overflow: hidden; text-overflow: ellipsis; }
 dl { font-size: 12px; }

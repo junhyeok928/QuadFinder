@@ -118,6 +118,21 @@ function renderRoots(roots){
   $('#custom-places').querySelectorAll('button').forEach(button=>button.onclick=()=>navigate(state.active,custom[Number(button.dataset.rootNav)]));
 }
 function initFeatures(boot){
+  const updateZoom=factor=>{$('#zoom-reset').textContent=`${Math.round(factor*100)}%`;};
+  updateZoom(boot.zoomFactor||1);api.onZoom?.(updateZoom);
+  api.onViewError?.(message=>toast(`화면 배율 저장 실패: ${message}`));
+  $('#zoom-reset').onclick=()=>{if(api.setZoom)call(api.setZoom(1)).then(updateZoom).catch(error=>toast(error.message));};
+  let wheelDelta=0,lastWheel=0;
+  document.addEventListener('wheel',event=>{
+    if(!event.ctrlKey||event.altKey||event.deltaY===0||!api.adjustZoom)return;
+    event.preventDefault();
+    const delta=event.deltaY*(event.deltaMode===1?40:event.deltaMode===2?innerHeight:1),now=performance.now();
+    if(now-lastWheel>250||Math.sign(delta)!==Math.sign(wheelDelta))wheelDelta=0;
+    lastWheel=now;wheelDelta+=delta;
+    if(Math.abs(wheelDelta)<40)return;
+    const direction=wheelDelta<0?1:-1;wheelDelta=0;
+    call(api.adjustZoom(direction)).then(updateZoom).catch(error=>toast(error.message));
+  },{passive:false,capture:true});
   $('#rename-dialog').addEventListener('close',async()=>{if($('#rename-dialog').returnValue!=='rename')return;try{await call(api.rename(renameSource,$('#rename-name').value));queueRefresh();}catch(error){toast(error.message);}});
   $('#close-properties').onclick=()=>$('#properties-dialog').close();
   $('#manage-roots').onclick=()=>{$('#roots-dialog').showModal();renderRoots(state.boot.roots);};

@@ -20,6 +20,10 @@ if(process.argv.includes('--quadfinder-design-preview')) {
   search: (query, filter) => ipcRenderer.invoke('search', query, filter),
   reindex: () => ipcRenderer.invoke('index:rebuild'),
   saveLayout: state => ipcRenderer.invoke('layout:save', state),
+  setZoom:factor=>ipcRenderer.invoke('view:zoom',factor),
+  adjustZoom:direction=>ipcRenderer.invoke('view:zoom-step',direction),
+  onZoom:callback=>{const handler=(_event,factor)=>callback(factor);ipcRenderer.on('view:zoom',handler);return ()=>ipcRenderer.removeListener('view:zoom',handler);},
+  onViewError:callback=>{const handler=(_event,message)=>callback(message);ipcRenderer.on('view:error',handler);return ()=>ipcRenderer.removeListener('view:error',handler);},
   windowAction: action => ipcRenderer.invoke('window:action', action),
   onIndex: callback => {
     const handler = (_event, data) => callback(data);

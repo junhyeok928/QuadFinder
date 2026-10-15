@@ -22,6 +22,22 @@ let roots = [];
 let places = [];
 let layout;
 let saveQueue = Promise.resolve();
+let zoomFactor=1,zoomSaveTimer;
+const normalizeZoom=value=>Math.max(.7,Math.min(1.5,Math.round((Number.isFinite(value)?value:1)*100)/100));
+function writeSettings(patch){
+  saveQueue=saveQueue.catch(()=>{}).then(async()=>{
+    const next={...(layout||{}),...patch,zoomFactor};
+    await fs.mkdir(app.getPath('userData'),{recursive:true});
+    await fs.writeFile(stateFile()+'.tmp',JSON.stringify(next,null,2));
+    await fs.rename(stateFile()+'.tmp',stateFile());layout=next;
+  });
+  return saveQueue;
+}
+function setZoom(value,persist=true){
+  zoomFactor=normalizeZoom(value);window.webContents.setZoomFactor(zoomFactor);send('view:zoom',zoomFactor);
+  if(persist){clearTimeout(zoomSaveTimer);zoomSaveTimer=setTimeout(()=>{zoomSaveTimer=null;writeSettings({}).catch(error=>send('view:error',error.message));},150);}
+  return zoomFactor;
+}
 let operations;
 let functionSmokeRoot=null;
 let indexTimer, changedTimer, rootsSave=Promise.resolve();
@@ -119,6 +135,7 @@ async function setup() {
     places = [{label:'테스트 자료', path:fixtures, icon:'home'}];
   }
   try { layout = JSON.parse(await fs.readFile(stateFile(), 'utf8')); } catch { layout = null; }
+  zoomFactor=designPreview?1:normalizeZoom(layout?.zoomFactor);
   if(smoke&&layout)layout={...layout,panes:Array.from({length:4},()=>({active:0,tabs:[{path:roots[0]}]}))};
   protocol.handle('quadfinder', request => {
     const url = new URL(request.url);
@@ -130,8 +147,17 @@ async function setup() {
   window = new BrowserWindow({ width: designPreview ? 1586 : 1520, height: designPreview ? 992 : 980, minWidth: 1000, minHeight: 680, show: !smoke && !designPreview,
     backgroundColor: '#14181e', title: 'QuadFinder', frame: false,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true,
+      backgroundThrottling:!smoke&&!designPreview,
       additionalArguments: designPreview ? ['--quadfinder-design-preview'] : [] } });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.setZoomMode('isolated');
+  window.webContents.on('before-input-event',(event,input)=>{
+    if(input.type!=='keyDown'||!input.control||input.alt)return;
+    if(input.key==='0'||input.code==='Numpad0'){event.preventDefault();setZoom(1);}
+    else if(['+','='].includes(input.key)){event.preventDefault();setZoom(zoomFactor+.1);}
+    else if(input.key==='-'){event.preventDefault();setZoom(zoomFactor-.1);}
+  });
+  window.webContents.on('did-finish-load',()=>setZoom(zoomFactor,false));
   window.webContents.on('will-navigate', event => event.preventDefault());
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   operations=new OperationQueue({trash:file=>shell.trashItem(file),changed:filesChanged,conflict:async info=>{
@@ -144,6 +170,9 @@ async function setup() {
     if(operations.active()){
       event.preventDefault();
       dialog.showMessageBox(window,{type:'question',message:'진행 중인 파일 작업이 있습니다.',detail:'작업을 취소한 뒤 창을 닫으세요.',buttons:['계속 작업'],defaultId:0});
+    }else if(zoomSaveTimer){
+      event.preventDefault();clearTimeout(zoomSaveTimer);zoomSaveTimer=null;
+      writeSettings({}).then(()=>window.close()).catch(error=>send('view:error',error.message));
     }
   });
   handle('bootstrap', async () => {
@@ -157,7 +186,7 @@ async function setup() {
         drives.push({ label: `로컬 디스크 (${root.slice(0, 2)})`, path: root, icon: 'drive', ...capacity });
       } catch { /* Not mounted. */ }
     }
-    return { places, drives, roots, layout, indexStatus, jobs:operations.snapshot(), version: app.getVersion(), smoke };
+    return { places, drives, roots, layout, zoomFactor, indexStatus, jobs:operations.snapshot(), version: app.getVersion(), smoke };
   });
   handle('files:list', listDirectory);
   handle('files:thumbnail', async value => {
@@ -224,14 +253,10 @@ async function setup() {
       if (!Array.isArray(pane.tabs) || pane.tabs.length < 1 || pane.tabs.length > 20) throw new Error('탭 개수를 확인하세요.');
       return { active: Math.max(0, Math.min(pane.tabs.length - 1, Number(pane.active) || 0)), tabs: pane.tabs.map(tab => ({ path: localPath(tab.path) })) };
     }) };
-    saveQueue = saveQueue.catch(() => {}).then(async () => {
-      await fs.mkdir(app.getPath('userData'), { recursive: true });
-      await fs.writeFile(stateFile() + '.tmp', JSON.stringify(clean, null, 2));
-      await fs.rename(stateFile() + '.tmp', stateFile());
-      layout=clean;
-    });
-    await saveQueue;
+    await writeSettings(clean);
   });
+  handle('view:zoom',value=>{if(typeof value!=='number'||!Number.isFinite(value))throw new Error('올바른 배율을 입력하세요.');return setZoom(value);});
+  handle('view:zoom-step',direction=>{if(direction!==1&&direction!==-1)throw new Error('올바르지 않은 배율 변경입니다.');return setZoom(zoomFactor+direction*.1);});
   handle('window:action', action => {
     if (action === 'minimize') window.minimize();
     if (action === 'maximize') window.isMaximized() ? window.unmaximize() : window.maximize();
@@ -265,6 +290,8 @@ async function setup() {
   if (smoke) {
     const deadline = Date.now() + 15000;
     while (Date.now() < deadline && !(await window.webContents.executeJavaScript('window.__quadfinderReady === true'))) await new Promise(resolve => setTimeout(resolve, 100));
+    setZoom(1,false);
+    await new Promise(resolve=>setTimeout(resolve,100));
     const result = await window.webContents.executeJavaScript(`(async () => {
       const waitFor = async predicate => { const deadline = Date.now()+10000; while(!predicate()){if(Date.now()>deadline)throw new Error('UI wait timeout');await new Promise(resolve=>setTimeout(resolve,50));} };
       const initialRows=document.querySelectorAll('.file-row').length;
@@ -305,14 +332,15 @@ async function setup() {
     const smokeOutputRoot=path.resolve(app.getAppPath(),'output');
     if(path.dirname(functionSmokeRoot)!==smokeOutputRoot||!path.basename(functionSmokeRoot).startsWith('functional-smoke-'))throw new Error('Unexpected test directory');
     await fs.rm(functionSmokeRoot,{recursive:true,force:true});functionSmokeRoot=null;
+    result.zoom=await require('../scripts/zoom-smoke.cjs').run({window,stateFile:stateFile(),output:path.join(app.getAppPath(),'output'),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,200));await saveQueue;}});
     await fs.mkdir(path.join(app.getAppPath(), 'output'), { recursive: true });
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.png'), (await window.webContents.capturePage()).toPNG());
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
-    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.fileOperations.passed ? 0 : 1);
+    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.fileOperations.passed && result.zoom.passed ? 0 : 1);
   }
 }
 app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.show();window.focus();}});
 if(ownsInstance)app.whenReady().then(setup).catch(error => { console.error(error); app.exit(1); });
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', event => {if(operations?.active()){event.preventDefault();window?.show();return;}worker?.terminate();rootWatchers.forEach(watcher=>watcher.close());folderWatchers.forEach(watcher=>watcher.close());clearTimeout(indexTimer);clearTimeout(changedTimer);clearInterval(fallbackIndexTimer);});
+app.on('before-quit', event => {if(operations?.active()){event.preventDefault();window?.show();return;}if(zoomSaveTimer){event.preventDefault();clearTimeout(zoomSaveTimer);zoomSaveTimer=null;writeSettings({}).then(()=>app.quit()).catch(error=>send('view:error',error.message));return;}worker?.terminate();rootWatchers.forEach(watcher=>watcher.close());folderWatchers.forEach(watcher=>watcher.close());clearTimeout(indexTimer);clearTimeout(changedTimer);clearInterval(fallbackIndexTimer);});
