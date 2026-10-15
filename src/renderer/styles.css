@@ -17,6 +17,7 @@ input { color: var(--text); background: none; border: 0; min-width: 0; }
 kbd { font-family: inherit; color: #b5c0cc; font-size: 14px; white-space: nowrap; }
 .titlebar { height: 40px; flex-shrink: 0; border-bottom: 1px solid #252e35; display: flex; align-items: center; justify-content: space-between; -webkit-app-region: drag; background: #141a1f; padding-left: 18px; }
 .brand { display: flex; align-items: center; gap: 13px; }
+.brand-icon { width:24px; height:24px; object-fit:contain; }
 .brand svg { width: 21px; height: 21px; }
 .brand strong { font-size: 14px; font-weight: 500; }
 .window-controls { height: 100%; display: flex; -webkit-app-region: no-drag; }

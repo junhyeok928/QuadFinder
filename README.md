@@ -4,7 +4,9 @@ Everything의 빠른 파일명 검색과 Q-Dir의 다중 패널 탐색 경험을
 
 ![확정한 디자인 시안](docs/design-concept.png)
 
-## 현재 구현 — v0.4.0
+## 현재 구현 — v0.4.1
+
+폴더·문서·돋보기 모양의 대표 아이콘을 창·작업 표시줄·실행 파일에 적용했습니다. 원본은 `assets/app-icon.svg`이며 `pnpm icon:build`로 PNG와 Windows ICO(16~256px)를 다시 생성할 수 있습니다.
 
 시안의 한 줄 검색 도구 모음, 컬러 파일 아이콘, 폴더 경로 표시, 패널 비율과 글자 크기를 반영했습니다. 드라이브 사용량은 실제 로컬 볼륨에서 읽고, 이미지 파일은 Windows에서 제공하는 썸네일을 표시합니다.
 
@@ -74,7 +76,7 @@ pnpm test       # 실제 파일 시스템 및 검색 워커 테스트
 pnpm smoke      # 실제 UI 선택→복사→충돌→이름 변경→드래그 이동→Windows 휴지통 검증
 pnpm preview    # http://127.0.0.1:4173 디자인 확인용, 예시 데이터
 pnpm design:check # 시안 크기와 작은 창의 실제 Electron 화면 캡처, 예시 데이터
-pnpm package    # release/0.4.0/QuadFinder-win32-x64/QuadFinder.exe
+pnpm package    # release/0.4.1/QuadFinder-win32-x64/QuadFinder.exe
 ```
 
 ## 검색 범위와 제한

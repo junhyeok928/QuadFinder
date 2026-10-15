@@ -15,6 +15,7 @@ async function enrich(entries){if(!entries.length)return entries;const attribute
 protocol.registerSchemesAsPrivileged([{ scheme: 'quadfinder', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 const smoke = !app.isPackaged && process.argv.includes('--smoke-test');
 const designPreview = !app.isPackaged && process.argv.includes('--design-preview');
+if(process.platform==='win32')app.setAppUserModelId('com.quadfinder.desktop');
 const ownsInstance=smoke||designPreview||app.requestSingleInstanceLock();
 if(!ownsInstance)app.quit();
 if (smoke) app.setPath('userData', path.join(app.getAppPath(), 'output', 'smoke-profile'));
@@ -150,6 +151,7 @@ async function setup() {
   protocol.handle('quadfinder', async request => {
     const url = new URL(request.url);
     if(url.hostname==='preview'){const item=pdfPreviews.get(url.pathname.slice(1));if(!item||Date.now()-item.time>3600000)return new Response('Expired',{status:404});const response=await net.fetch(pathToFileURL(item.file).href);return new Response(response.body,{headers:{'Content-Type':'application/pdf','X-Content-Type-Options':'nosniff'}});}
+    if(url.hostname==='app'&&['/app-icon.svg','/app-icon.ico'].includes(url.pathname))return net.fetch(pathToFileURL(path.join(app.getAppPath(),'assets',url.pathname.slice(1))).href);
     if(url.hostname==='app'&&url.pathname==='/view-options.js')return net.fetch(pathToFileURL(path.join(__dirname,'view-options.cjs')).href);
     const assets = new Set(['index.html', 'styles.css', 'renderer.js', 'features.js', 'view-ui.js', 'icons.js', 'preview.js']);
     const file = url.pathname.slice(1) || 'index.html';
@@ -157,7 +159,7 @@ async function setup() {
     return net.fetch(pathToFileURL(path.join(__dirname, 'renderer', file)).href);
   });
   window = new BrowserWindow({ width: designPreview ? 1586 : 1520, height: designPreview ? 992 : 980, minWidth: 1000, minHeight: 680, show: !smoke && !designPreview,
-    backgroundColor: '#14181e', title: 'QuadFinder', frame: false,
+    icon:path.join(app.getAppPath(),'assets/app-icon.ico'), backgroundColor: '#14181e', title: 'QuadFinder', frame: false,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true,
       backgroundThrottling:!smoke&&!designPreview,
       additionalArguments: designPreview ? ['--quadfinder-design-preview'] : [] } });
