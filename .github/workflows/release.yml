@@ -1,0 +1,44 @@
+name: Prepare Windows release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '배포할 버전 태그 (예: v0.8.0). package.json 버전과 같아야 합니다.'
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: 버전 확인
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: node -e "if(process.env.RELEASE_TAG!=='v'+require('./package.json').version)process.exit(1)"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm smoke
+      - run: pnpm design:check
+      - run: pnpm package
+      - run: pnpm installer
+      - run: pnpm installer:check
+      - name: 설치 파일과 업데이트 패키지를 초안 릴리스에 업로드
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $assets = Get-ChildItem -LiteralPath "release/$version/installer" -File | ForEach-Object FullName
+          gh release create $env:RELEASE_TAG --draft --target $env:GITHUB_SHA --title "QuadFinder $version" --generate-notes @assets

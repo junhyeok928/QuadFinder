@@ -114,8 +114,8 @@ async function renameItem(sourceValue,name) {
 }
 
 class OperationQueue extends EventEmitter {
-  constructor({trash,conflict=async()=> 'keep-both',changed=()=>{}}) {
-    super();this.trash=trash;this.conflict=conflict;this.changed=changed;this.jobs=[];this.running=false;
+  constructor({trash,conflict=async()=> 'keep-both',changed=()=>{},completed=async()=>{}}) {
+    super();this.trash=trash;this.conflict=conflict;this.changed=changed;this.completed=completed;this.jobs=[];this.running=false;
   }
   snapshot(){return this.jobs.map(({controller,...job})=>({...job,errors:[...job.errors]}));}
   publish(job,force=false){const now=Date.now();if(force||!job.lastUpdate||now-job.lastUpdate>80){job.lastUpdate=now;this.emit('update',this.snapshot());}}
@@ -131,10 +131,11 @@ class OperationQueue extends EventEmitter {
   async drain(){
     if(this.running)return;this.running=true;
     try { for(const job of this.jobs)if(job.status==='queued')await this.run(job); }
-    finally {this.running=false;}
+    finally {this.running=false;this.emit('update',this.snapshot());}
   }
   async run(job){
     const signal=job.controller.signal;
+    const undoActions=[];
     let stage=null;
     try {
       abort(signal);job.status='scanning';this.publish(job,true);
@@ -152,7 +153,7 @@ class OperationQueue extends EventEmitter {
       for(const {source,plan} of plans) {
         abort(signal);job.current=source;this.publish(job,true);
         try {
-          if(job.kind==='trash') {await this.trash(source);job.done++;this.changed([path.dirname(source)]);continue;}
+          if(job.kind==='trash') {await this.trash(source);job.done++;this.emit('trashed');this.changed([path.dirname(source)]);continue;}
           if(job.kind==='move'&&key(path.dirname(source))===key(destination)){job.skipped++;continue;}
           let target=childPath(destination,path.basename(source));
           if(await exists(target)) {
@@ -182,7 +183,7 @@ class OperationQueue extends EventEmitter {
           await fs.rmdir(stage);stage=null;
           this.changed([destination]);
           if(job.kind==='move') {await unchanged(plan.records);await this.trash(source);}
-          job.done++;this.changed([destination,path.dirname(source)]);
+          job.done++;undoActions.push({kind:job.kind,source,target});this.changed([destination,path.dirname(source)]);
         } catch(error) {
           if(stage){await fs.rm(stage,{recursive:true,force:true}).catch(()=>{});stage=null;}
           if(error.name==='AbortError')throw error;
@@ -195,10 +196,11 @@ class OperationQueue extends EventEmitter {
       if(error.name!=='AbortError')job.errors.push({path:job.current,message:error.message});
     } finally {
       if(stage)await fs.rm(stage,{recursive:true,force:true}).catch(()=>{});
+      if(undoActions.length)try{await this.completed(undoActions,job.kind==='copy'?'복사':'이동');}catch(error){this.emit('undo-error',error);}
       job.current='';this.publish(job,true);
       if(this.jobs.length>60)this.jobs=this.jobs.filter(item=>['queued','scanning','running'].includes(item.status)||this.jobs.indexOf(item)>=this.jobs.length-40);
     }
   }
 }
 
-module.exports={OperationQueue,renameItem,normalizeSources,inspectTree,inside};
+module.exports={OperationQueue,renameItem,normalizeSources,inspectTree,inside,copyTree,unchanged};

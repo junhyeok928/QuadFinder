@@ -5,6 +5,9 @@ const { pathToFileURL } = require('node:url');
 const { Worker } = require('node:worker_threads');
 const { localPath, listDirectory, createFolder } = require('./files.cjs');
 const { OperationQueue, renameItem, normalizeSources } = require('./operations.cjs');
+const {UndoManager}=require('./undo.cjs');
+const {handleSquirrel,updateExecutable}=require('./squirrel.cjs');
+const {AppUpdater}=require('./updater.cjs');
 const { watch } = require('node:fs');
 const windowsShell=require('./windows-shell.cjs');
 const {preview}=require('./file-preview.cjs');
@@ -16,9 +19,10 @@ async function enrich(entries){if(!entries.length)return entries;const attribute
 protocol.registerSchemesAsPrivileged([{ scheme: 'quadfinder', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 const smoke = !app.isPackaged && process.argv.includes('--smoke-test');
 const designPreview = !app.isPackaged && process.argv.includes('--design-preview');
-if(process.platform==='win32')app.setAppUserModelId('com.quadfinder.desktop');
-const ownsInstance=smoke||designPreview||app.requestSingleInstanceLock();
-if(!ownsInstance)app.quit();
+if(process.platform==='win32')app.setAppUserModelId('com.squirrel.quadfinder.QuadFinder');
+const squirrelHandled=handleSquirrel(app);
+const ownsInstance=!squirrelHandled&&(smoke||designPreview||app.requestSingleInstanceLock());
+if(!ownsInstance&&!squirrelHandled)app.quit();
 if (smoke) app.setPath('userData', path.join(app.getAppPath(), 'output', 'smoke-profile'));
 if (designPreview) app.setPath('userData', path.join(app.getAppPath(), 'output', 'design-profile'));
 let window;
@@ -47,6 +51,8 @@ function setZoom(value,persist=true){
   return zoomFactor;
 }
 let operations;
+let undo;
+let updater;
 let functionSmokeRoot=null;
 let indexTimer, changedTimer, rootsSave=Promise.resolve();
 const changedPaths=new Set(),changedFolders=new Set();
@@ -65,7 +71,7 @@ function filesChanged(values){
   if(paths&&!paths.length)return;
   if(paths)for(const value of paths){changedFolders.add(value);if(indexable(value,roots,indexExclusions()))changedPaths.add(value);}
   else refreshAll=true;
-  clearTimeout(changedTimer);changedTimer=setTimeout(function flush(){if(operations?.active()){changedTimer=setTimeout(flush,350);return;}send('files:changed',refreshAll?null:[...changedFolders]);changedFolders.clear();refreshAll=false;scheduleIndex();},350);
+  clearTimeout(changedTimer);changedTimer=setTimeout(function flush(){if(operations?.active()||undo?.busy){changedTimer=setTimeout(flush,350);return;}send('files:changed',refreshAll?null:[...changedFolders]);changedFolders.clear();refreshAll=false;scheduleIndex();},350);
 }
 function scheduleIndex(){clearTimeout(indexTimer);indexTimer=setTimeout(()=>{const paths=[...changedPaths];changedPaths.clear();if(paths.length&&worker)worker.postMessage({type:'update',paths});},1000);}
 function watchRoots(){
@@ -203,14 +209,20 @@ async function setup() {
   window.webContents.on('did-finish-load',()=>setZoom(zoomFactor,false));
   window.webContents.on('will-navigate', event => event.preventDefault());
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-  operations=new OperationQueue({trash:file=>shell.trashItem(file),changed:filesChanged,conflict:async info=>{
+  undo=new UndoManager({trash:file=>shell.trashItem(file),working:()=>operations?.active()||operations?.running,changed:filesChanged});
+  undo.on('update',value=>send('undo:changed',value));
+  operations=new OperationQueue({trash:file=>shell.trashItem(file),changed:filesChanged,completed:(actions,label)=>undo.record(actions,label),conflict:async info=>{
     if(smoke&&functionSmokeRoot&&info.source.startsWith(functionSmokeRoot+path.sep)&&info.destination.startsWith(functionSmokeRoot+path.sep))return 'keep-both';
     const result=await dialog.showMessageBox(window,{type:'question',message:'같은 이름의 파일 또는 폴더가 있습니다.',detail:`원본: ${info.source}\n대상: ${info.destination}`,buttons:['둘 다 유지','건너뛰기','작업 취소'],defaultId:0,cancelId:2,checkboxLabel:'이번 작업의 모든 충돌에 적용',checkboxChecked:false});
     return {action:['keep-both','skip','cancel'][result.response],applyAll:result.checkboxChecked};
   }});
-  operations.on('update',jobs=>send('operations:changed',jobs));
+  operations.on('update',jobs=>{send('operations:changed',jobs);undo.publish();});
+  operations.on('undo-error',error=>send('view:error',error.name==='AbortError'?'내용 검증을 중단했습니다. 완료한 파일 작업은 유지됩니다.':'실행 취소 기록을 만들지 못했습니다: '+error.message));
+  operations.on('trashed',()=>undo.clear());
+  updater=new AppUpdater({native:require('electron').autoUpdater,version:app.getVersion(),installed:app.isPackaged&&require('node:fs').existsSync(updateExecutable(process.execPath)),canInstall:()=>!operations.active()&&!operations.running&&!undo.busy});
+  updater.on('update',value=>send('updater:changed',value));updater.start(process.argv.includes('--squirrel-firstrun'));
   window.on('close',event=>{
-    if(operations.active()){
+    if(operations.active()||undo.busy){
       event.preventDefault();
       dialog.showMessageBox(window,{type:'question',message:'진행 중인 파일 작업이 있습니다.',detail:'작업을 취소한 뒤 창을 닫으세요.',buttons:['계속 작업'],defaultId:0});
     }else if(zoomSaveTimer){
@@ -233,7 +245,7 @@ async function readDrives(){
   }
   handle('navigation:drives',readDrives);
   handle('bootstrap', async () => {const drives=await readDrives();
-    return { places, drives, roots, networkDrives, layout, zoomFactor, indexStatus, jobs:operations.snapshot(), version: app.getVersion(), smoke };
+    return { places, drives, roots, networkDrives, layout, zoomFactor, indexStatus, jobs:operations.snapshot(), undo:undo.snapshot(), updater:updater.snapshot(), version: app.getVersion(), smoke };
   });
   handle('files:validate-folder',async value=>{const folder=localPath(value);if(!(await fs.stat(folder)).isDirectory())throw new Error('폴더 경로를 입력하세요.');return folder;});
   handle('files:folders',async value=>{const folder=localPath(value),items=await fs.readdir(folder,{withFileTypes:true});const entries=items.filter(item=>item.isDirectory()&&!item.isSymbolicLink()&&!item.name.startsWith('.quadfinder-')).map(item=>({name:item.name,path:path.join(folder,item.name),directory:true}));return (await enrich(entries)).filter(entry=>!entry.hidden).sort((a,b)=>a.name.localeCompare(b.name,'ko',{numeric:true}));});
@@ -248,7 +260,7 @@ async function readDrives(){
     const paths=input.paths.map(localPath);await Promise.all(paths.map(value=>fs.access(value)));
     if(input.verb&&!['properties','openas'].includes(input.verb))throw new Error('허용되지 않은 Windows 명령입니다.');
     const bounds=window.getContentBounds(),point=screen.dipToScreenPoint({x:Math.round(bounds.x+Math.max(0,Math.min(bounds.width,(Number(input.x)||0)*zoomFactor))),y:Math.round(bounds.y+Math.max(0,Math.min(bounds.height,(Number(input.y)||0)*zoomFactor)))});
-    shellMenuOpen=true;try{const result=await windowsShell.request({mode:smoke&&input.probe?'probe':'menu',paths,background:input.background===true,x:point.x,y:point.y,verb:input.verb});if(result?.action&&!['copy','cut','properties','openas','rename'].includes(result.action))filesChanged(paths.concat(paths.map(value=>path.dirname(value))));return result;}finally{shellMenuOpen=false;}
+    shellMenuOpen=true;try{const result=await windowsShell.request({mode:smoke&&input.probe?'probe':'menu',paths,background:input.background===true,x:point.x,y:point.y,verb:input.verb});if(result?.action==='delete')undo.clear();if(result?.action&&!['copy','cut','properties','openas','rename'].includes(result.action))filesChanged(paths.concat(paths.map(value=>path.dirname(value))));return result;}finally{shellMenuOpen=false;}
   });
   handle('files:thumbnail', async value => {
     const file=localPath(value);
@@ -278,7 +290,7 @@ async function readDrives(){
   });
   handle('files:reveal', async value => { const file = localPath(value); await fs.access(file); shell.showItemInFolder(file); });
   handle('files:mkdir', async(...args)=>{const file=await createFolder(...args);filesChanged([file]);return file;});
-  handle('files:rename',async(source,name)=>{const target=await renameItem(source,name);filesChanged([source,target]);return target;});
+  handle('files:rename',async(source,name)=>{if(undo.busy||operations.active())throw new Error('진행 중인 작업이 끝난 뒤 이름을 변경하세요.');const target=await renameItem(source,name);if(target!==source)try{await undo.record([{kind:'rename',source,target}],'이름 변경');}catch(error){send('view:error','실행 취소 기록 실패: '+error.message);}filesChanged([source,target]);return target;});
   handle('files:watch',async values=>{
     if(!Array.isArray(values)||values.length>4)throw new Error('잘못된 폴더 목록입니다.');
     const directories=[...new Map(values.map(localPath).map(value=>[pathKey(value),value])).values()];
@@ -289,6 +301,7 @@ async function readDrives(){
   });
   handle('files:paths',async values=>{if(!Array.isArray(values)||values.length>10000)throw new Error('잘못된 경로 목록입니다.');return values.map(localPath);});
   handle('operations:start',async input=>{
+    if(undo.busy)throw new Error('실행 취소 처리가 끝난 뒤 다시 시도하세요.');
     if(!input||!['copy','move','trash'].includes(input.kind))throw new Error('잘못된 작업입니다.');
     const sources=await normalizeSources(input.sources);
     if(input.kind==='trash'){
@@ -299,6 +312,11 @@ async function readDrives(){
   });
   handle('operations:cancel',id=>operations.cancel(id));
   handle('operations:clear',()=>operations.clear());
+  handle('operations:undo',async()=>{try{return await undo.undo();}catch(error){if(error.name==='AbortError')throw new Error('실행 취소를 중단했습니다. 이미 되돌린 항목은 유지됩니다.');throw error;}});
+  handle('operations:undo-cancel',()=>undo.cancel());
+  handle('updater:check',()=>updater.check());
+  handle('updater:install',()=>updater.install());
+  handle('updater:releases',()=>shell.openExternal('https://github.com/junhyeok928/QuadFinder/releases'));
   handle('roots:remove',async value=>{roots=roots.filter(root=>pathKey(root)!==pathKey(localPath(value)));await saveRoots();return roots;});
   handle('roots:add',async value=>{
     const root=localPath(value);
@@ -318,7 +336,7 @@ async function readDrives(){
     const navigation=normalizeNavigation(value.navigation);
     for(const field of ['favorites','hidden','order','expanded','recent'])navigation[field]=navigation[field].filter(value=>{try{localPath(value);return true;}catch{return false;}});
     navigation.labels=Object.fromEntries(Object.entries(navigation.labels).filter(([value])=>{try{localPath(/^[a-z]:$/i.test(value)?value+'\\':value);return true;}catch{return false;}}));
-    const clean = { navigation, folderViews, layout: value.layout, sidebarWidth: Number.isFinite(value.sidebarWidth) ? Math.max(150,Math.min(400,Math.round(value.sidebarWidth))) : 184, panes: value.panes.map(pane => {
+    const clean = { panelRatios:Object.fromEntries(['x','y'].map(axis=>[axis,Math.max(.2,Math.min(.8,Number.isFinite(value.panelRatios?.[axis])?value.panelRatios[axis]:.5))])), navigation, folderViews, layout: value.layout, sidebarWidth: Number.isFinite(value.sidebarWidth) ? Math.max(150,Math.min(400,Math.round(value.sidebarWidth))) : 184, panes: value.panes.map(pane => {
       if (!Array.isArray(pane.tabs) || pane.tabs.length < 1 || pane.tabs.length > 20) throw new Error('탭 개수를 확인하세요.');
       return { active: Math.max(0, Math.min(pane.tabs.length - 1, Number(pane.active) || 0)), tabs: pane.tabs.map(tab => ({ path: localPath(tab.path),view:normalizeView({view:tab.view}).view,options:normalizeView(tab.options||{view:tab.view}) })) };
     }) };
@@ -415,6 +433,7 @@ async function readDrives(){
     result.sidebar=await require('../scripts/sidebar-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile(),appPath:app.getAppPath()});
     result.recent=await require('../scripts/recent-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile()});
     result.mouseHistory=await require('../scripts/history-smoke.cjs').run({window,root:functionSmokeRoot});
+    result.undo=await require('../scripts/undo-smoke.cjs').run({window,root:functionSmokeRoot});
     await window.webContents.executeJavaScript(`Promise.all(state.panes.map((_pane,index)=>navigate(index,${JSON.stringify(roots[0])})))`);
     await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;
     const smokeOutputRoot=path.resolve(app.getAppPath(),'output');
@@ -422,14 +441,15 @@ async function readDrives(){
     await fs.rm(functionSmokeRoot,{recursive:true,force:true});functionSmokeRoot=null;
     result.zoom=await require('../scripts/zoom-smoke.cjs').run({window,stateFile:stateFile(),output:path.join(app.getAppPath(),'output'),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,200));await saveQueue;}});
     result.theme=await require('../scripts/theme-smoke.cjs').run({window,stateFile:stateFile(),output:path.join(app.getAppPath(),'output'),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,200));await saveQueue;}});
+    result.panelResize=await require('../scripts/panel-smoke.cjs').run({window,stateFile:stateFile(),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;}});
     await fs.mkdir(path.join(app.getAppPath(), 'output'), { recursive: true });
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.png'), (await window.webContents.capturePage()).toPNG());
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
-    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && Object.values(result.views).every(Boolean) && result.viewRestored && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.sidebar.passed && result.refresh.passed && result.mouseHistory.passed && result.viewOptions.passed && result.fileOperations.passed && result.zoom.passed && result.theme.passed && result.recent.passed ? 0 : 1);
+    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && Object.values(result.views).every(Boolean) && result.viewRestored && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.sidebar.passed && result.refresh.passed && result.mouseHistory.passed && result.viewOptions.passed && result.fileOperations.passed && result.zoom.passed && result.theme.passed && result.recent.passed && result.panelResize.passed && result.undo.passed ? 0 : 1);
   }
 }
 app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.show();window.focus();}});
 if(ownsInstance)app.whenReady().then(setup).catch(error => { console.error(error); app.exit(1); });
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', event => {if(operations?.active()){event.preventDefault();window?.show();return;}if(zoomSaveTimer){event.preventDefault();clearTimeout(zoomSaveTimer);zoomSaveTimer=null;writeSettings({}).then(()=>app.quit()).catch(error=>send('view:error',error.message));return;}worker?.terminate();rootWatchers.forEach(watcher=>watcher.close());folderWatchers.forEach(watcher=>watcher.close());clearTimeout(indexTimer);clearTimeout(changedTimer);});
+app.on('before-quit', event => {if(operations?.active()){event.preventDefault();window?.show();return;}if(zoomSaveTimer){event.preventDefault();clearTimeout(zoomSaveTimer);zoomSaveTimer=null;writeSettings({}).then(()=>app.quit()).catch(error=>send('view:error',error.message));return;}updater?.stop();worker?.terminate();rootWatchers.forEach(watcher=>watcher.close());folderWatchers.forEach(watcher=>watcher.close());clearTimeout(indexTimer);clearTimeout(changedTimer);});

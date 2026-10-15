@@ -357,5 +357,13 @@ nav .recent-location { height:42px; padding:5px 8px; gap:8px; }
 .recent-empty { display:block; padding:8px; color:var(--muted); font-size:11px; }
 #clear-recent { padding:6px 8px; font-size:11px; color:var(--muted); }
 .drive-meter { background:var(--line); }
+.panes { position:relative; grid-template-columns:minmax(0,var(--left,1fr)) minmax(0,var(--right,1fr)); grid-template-rows:minmax(0,var(--top,1fr)) minmax(0,var(--bottom,1fr)); }
+.panes.layout-2 { grid-template-columns:minmax(0,var(--left,1fr)) minmax(0,var(--right,1fr)); }
+.panel-resizer { position:absolute; z-index:4; touch-action:none; }
+.panel-resizer-x { top:0; bottom:0; left:calc((100% - 8px)*var(--split-x,.5)); width:8px; cursor:col-resize; }
+.panel-resizer-y { left:0; right:0; top:calc((100% - 10px)*var(--split-y,.5)); height:10px; cursor:row-resize; }
+.panel-resizer:hover,.panel-resizer:focus-visible { background:color-mix(in srgb,var(--accent) 20%,transparent);outline:none; }
+.resizing-panels,.resizing-panels * { user-select:none!important; }
+@media (max-height:650px) { .panes.layout-4 { grid-template-rows:minmax(220px,var(--top,1fr)) minmax(220px,var(--bottom,1fr)); } }
 .drive-meter i { background:var(--accent); }
 .column-resize:hover,.column-resize:focus { background:var(--selected); }

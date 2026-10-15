@@ -3,6 +3,31 @@ const $ = selector => document.querySelector(selector);
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const state = { panes: [], layout: 4, sidebarWidth: 184, active: 0, query: '', filter: 'all', request: 0, boot: null, folderViews:{} };
 let toastTimer, searchTimer, saveTimer;
+state.panelRatios={x:.49,y:.5};
+const panelRatio=value=>Math.max(.2,Math.min(.8,Number.isFinite(value)?value:.5));
+function applyPanelRatios(){
+  const panes=$('#panes'),width=panes.clientWidth-8,height=panes.clientHeight-10;
+  const limit=(ratio,size,min)=>{const edge=Math.min(.5,min/Math.max(1,size));return Math.max(edge,Math.min(1-edge,panelRatio(ratio)));};
+  const x=limit(state.panelRatios.x,width,260),y=limit(state.panelRatios.y,height,150);
+  panes.style.setProperty('--split-x',x);panes.style.setProperty('--split-y',y);
+  panes.style.setProperty('--left',`${x}fr`);panes.style.setProperty('--right',`${1-x}fr`);panes.style.setProperty('--top',`${y}fr`);panes.style.setProperty('--bottom',`${1-y}fr`);
+  for(const handle of panes.querySelectorAll('.panel-resizer')){const axis=handle.dataset.axis;handle.hidden=axis==='x'?state.layout===1:state.layout!==4||height<440;handle.setAttribute('aria-valuenow',Math.round((axis==='x'?x:y)*100));const first=state.panes[0]?.element;if(first)handle.style[axis==='x'?'left':'top']=(axis==='x'?first.offsetLeft+first.offsetWidth:first.offsetTop+first.offsetHeight)+'px';}
+}
+function setupPanelResize(saved){
+  state.panelRatios={x:panelRatio(saved?.x??.49),y:panelRatio(saved?.y??.5)};
+  const panes=$('#panes');
+  for(const axis of ['x','y']){
+    const handle=document.createElement('div');handle.className='panel-resizer panel-resizer-'+axis;handle.dataset.axis=axis;handle.tabIndex=0;handle.setAttribute('role','separator');handle.setAttribute('aria-label',axis==='x'?'패널 좌우 비율 조절':'패널 위아래 비율 조절');handle.setAttribute('aria-orientation',axis==='x'?'vertical':'horizontal');handle.setAttribute('aria-valuemin','20');handle.setAttribute('aria-valuemax','80');handle.title='드래그하여 패널 크기 조절 · 더블클릭으로 균등 분할';panes.append(handle);
+    let drag;
+    const finish=cancel=>{if(!drag)return;const {original,pointer}=drag;drag=null;if(cancel)state.panelRatios[axis]=original;document.body.classList.remove('resizing-panels');if(handle.hasPointerCapture(pointer))handle.releasePointerCapture(pointer);applyPanelRatios();save();};
+    handle.onpointerdown=event=>{if(event.button!==0)return;event.preventDefault();event.stopPropagation();handle.focus({preventScroll:true});drag={original:state.panelRatios[axis],pointer:event.pointerId};handle.setPointerCapture(event.pointerId);document.body.classList.add('resizing-panels');};
+    handle.onpointermove=event=>{if(!drag)return;const r=panes.getBoundingClientRect();state.panelRatios[axis]=panelRatio(axis==='x'?(event.clientX-r.left-4)/(r.width-8):(event.clientY-r.top-5)/(r.height-10));applyPanelRatios();};
+    handle.onpointerup=()=>finish(false);handle.onpointercancel=()=>finish(true);handle.onlostpointercapture=()=>finish(false);
+    handle.ondblclick=()=>{state.panelRatios[axis]=.5;applyPanelRatios();save();};
+    handle.onkeydown=event=>{if(event.key==='Escape'&&drag){event.preventDefault();finish(true);return;}const negative=axis==='x'?'ArrowLeft':'ArrowUp',positive=axis==='x'?'ArrowRight':'ArrowDown';if(![negative,positive,'Home','End'].includes(event.key))return;event.preventDefault();event.stopPropagation();state.panelRatios[axis]=event.key==='Home'?.2:event.key==='End'?.8:panelRatio(state.panelRatios[axis]+(event.key===negative?-1:1)*(event.shiftKey?.1:.02));applyPanelRatios();save();};
+  }
+  new ResizeObserver(applyPanelRatios).observe(panes);applyPanelRatios();
+}
 function toast(message) { $('#toast').textContent = message; $('#toast').classList.add('visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').classList.remove('visible'), 5000); }
 async function call(promise) { const result = await promise; if (!result.ok) throw new Error(result.error); return result.value; }
 function tabOf(pane) { return pane.tabs[pane.active]; }
@@ -56,7 +81,7 @@ function fileType(entry) {
 }
 function sizeLabel(entry) { if (entry.directory) return '—'; const bytes = entry.size; if (bytes < 1024) return `${bytes} B`; if (bytes < 1048576) return `${(bytes / 1024).toFixed(0)} KB`; if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`; return `${(bytes / 1073741824).toFixed(1)} GB`; }
 function dateLabel(value) { const d = new Date(value); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
-function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => call(api.saveLayout({ layout: state.layout, sidebarWidth: state.sidebarWidth, navigation:navState(), folderViews:state.folderViews, panes: state.panes.map(pane => ({ active: pane.active, tabs: pane.tabs.map(tab => ({path:tab.path,view:tab.view,options:viewOf(tab)})) })) })).catch(error => toast(`레이아웃 저장 실패: ${error.message}`)), 150); }
+function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => call(api.saveLayout({ layout: state.layout, panelRatios:state.panelRatios, sidebarWidth: state.sidebarWidth, navigation:navState(), folderViews:state.folderViews, panes: state.panes.map(pane => ({ active: pane.active, tabs: pane.tabs.map(tab => ({path:tab.path,view:tab.view,options:viewOf(tab)})) })) })).catch(error => toast(`레이아웃 저장 실패: ${error.message}`)), 150); }
 function setupSidebar(savedWidth) {
   const sidebar=$('#sidebar'), handle=$('#sidebar-resizer');
   let drag=null;
@@ -113,7 +138,7 @@ function syncSidebar(){
   document.querySelectorAll('[data-nav-section]').forEach(button=>{const group=$('#'+button.getAttribute('aria-controls'));button.classList.toggle('section-current',!!selected&&group.hidden&&group.contains(selected));});
   syncRecentFolders();
 }
-function applyLayout(value) { state.layout = value; if (state.active >= value) state.active = 0; $('#panes').className = `panes layout-${value}`; document.querySelectorAll('[data-layout]').forEach(button => { const active = Number(button.dataset.layout) === value; button.classList.toggle('active', active); button.setAttribute('aria-pressed', active); }); state.panes.forEach((pane, i) => { pane.element.hidden = i >= value; }); setActive(state.active); save();if(window.__quadfinderReady)queueRefresh(state.panes.slice(0,value).map(pane=>tabOf(pane).path)); }
+function applyLayout(value) { state.layout = value; if (state.active >= value) state.active = 0; $('#panes').className = `panes layout-${value}`; document.querySelectorAll('[data-layout]').forEach(button => { const active = Number(button.dataset.layout) === value; button.classList.toggle('active', active); button.setAttribute('aria-pressed', active); }); state.panes.forEach((pane, i) => { pane.element.hidden = i >= value; }); setActive(state.active); applyPanelRatios();save();if(window.__quadfinderReady)queueRefresh(state.panes.slice(0,value).map(pane=>tabOf(pane).path)); }
 
 function renderPane(index) {
   const pane = state.panes[index], tab = tabOf(pane), element = pane.element;
@@ -258,6 +283,7 @@ async function init() {
     state.panes.push(pane); element.addEventListener('pointerdown',event=>{if(event.button<3)setActive(i);}); renderPane(i);
   }
   setupSidebarNavigation(saved?.navigation);
+  setupPanelResize(saved?.panelRatios);
   document.querySelectorAll('[data-window]').forEach(button=>button.onclick=()=>call(api.windowAction(button.dataset.window)).catch(error=>toast(error.message)));
   document.querySelectorAll('[data-layout]').forEach(button=>button.onclick=()=>applyLayout(Number(button.dataset.layout)));
   document.querySelectorAll('[data-filter]').forEach(button=>button.onclick=()=>{state.filter=button.dataset.filter;document.querySelectorAll('[data-filter]').forEach(item=>item.classList.toggle('active',item===button));if(state.query)runSearch();else toast('검색어를 입력하면 선택한 필터가 적용됩니다.');});

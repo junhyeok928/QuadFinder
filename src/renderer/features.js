@@ -133,9 +133,16 @@ function renderRoots(roots){
   renderSidebar();
 }
 function initFeatures(boot){
+  let undoState=boot.undo;
+  const updateUndo=value=>{undoState=value;const button=$('#undo-operation');button.disabled=!value?.available&&!value?.busy;button.textContent=value?.busy?'처리 중단':'실행 취소';button.title=value?.busy?'내용 검증 또는 실행 취소 처리를 중단합니다.':value?.label?`${value.label} 실행 취소 (Ctrl+Z) · 이번 실행에서 최근 20개 작업`:'실행 취소 (Ctrl+Z) · 이번 실행에서 완료한 복사·이동·이름 변경';};
+  updateUndo(boot.undo);api.onUndo?.(updateUndo);
+  let updateState=boot.updater||{phase:'portable'};
+  const updateUpdater=value=>{updateState=value;const button=$('#check-updates');button.textContent=value.phase==='ready'?'재시작하여 업데이트':['checking','downloading'].includes(value.phase)?'업데이트 중…':'업데이트';button.disabled=['checking','downloading'].includes(value.phase);button.title=value.message||'업데이트 확인';};updateUpdater(updateState);api.onUpdater?.(updateUpdater);
+  $('#check-updates').onclick=async()=>{try{if(!api.checkUpdates)return toast('설치 버전에서 업데이트를 사용할 수 있습니다.');if(updateState.phase==='ready'){await call(api.installUpdate());return;}if(updateState.phase==='portable'){await call(api.openReleases());return;}const next=await call(api.checkUpdates());updateUpdater(next);if(['current','error'].includes(next.phase))toast(next.message);}catch(error){toast(error.message);}};
+  $('#undo-operation').onclick=async()=>{if(!api.undo)return;if(undoState?.busy){if(api.cancelUndo)await call(api.cancelUndo());return;}$('#undo-operation').disabled=true;try{await call(api.undo());queueRefresh();toast('작업을 되돌렸습니다.');}catch(error){toast(error.message);} };
   const updateZoom=factor=>{$('#zoom-reset').textContent=`${Math.round(factor*100)}%`;};
   updateZoom(boot.zoomFactor||1);api.onZoom?.(updateZoom);
-  api.onViewError?.(message=>toast(`화면 배율 저장 실패: ${message}`));
+  api.onViewError?.(message=>toast(message));
   $('#zoom-reset').onclick=()=>{if(api.setZoom)call(api.setZoom(1)).then(updateZoom).catch(error=>toast(error.message));};
   let wheelDelta=0,lastWheel=0;
   document.addEventListener('wheel',event=>{
@@ -166,6 +173,7 @@ function initFeatures(boot){
   document.addEventListener('keydown',event=>{
     if((event.target instanceof Element&&event.target.closest('input:not([type="checkbox"]),textarea,select'))||document.querySelector('dialog[open]'))return;
     if(event.key==='Escape'){$('#context-menu').hidden=true;return;}
+    if(event.ctrlKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();$('#context-menu').hidden=true;if(undoState?.busy)toast('내용을 검증하고 있습니다. 중단하려면 상단의 처리 중단을 누르세요.');else if(!$('#undo-operation').disabled)$('#undo-operation').click();else toast('실행 취소할 수 있는 완료 작업이 없습니다.');return;}
     const menu=$('#context-menu');if(!menu.hidden&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();const buttons=[...menu.querySelectorAll('button:not(:disabled)')],index=buttons.indexOf(document.activeElement);buttons[(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus();return;}
     if(event.target instanceof Element&&event.target.closest('#sidebar'))return;
     if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){event.preventDefault();const row=document.activeElement.closest?.('.file-row'),rect=(row||state.panes[state.active].element.querySelector('.file-table')).getBoundingClientRect();showFileMenu(state.active,rect.x+20,rect.y+20,!selectedEntries().length);return;}
