@@ -16,12 +16,13 @@
     <div class="window-controls"><button data-window="minimize" aria-label="최소화">─</button><button data-window="maximize" aria-label="최대화">□</button><button data-window="close" aria-label="닫기">×</button></div>
   </header>
   <main class="app-shell">
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
       <div class="sidebar-heading"><span data-icon="desktop-small"></span>즐겨찾기 <span class="collapse-mark">⌃</span></div>
       <nav id="places" aria-label="즐겨찾기"></nav>
       <div class="sidebar-heading drives-heading"><span data-icon="desktop-small"></span>내 PC <span class="collapse-mark">⌃</span></div>
       <nav id="drives" aria-label="드라이브"></nav>
       <button id="choose-folder" class="add-location"><span data-icon="plus"></span>폴더 추가</button>
+      <div id="sidebar-resizer" role="separator" tabindex="0" aria-label="탐색 영역 너비 조절" aria-orientation="vertical" aria-controls="sidebar" aria-valuemin="150" aria-valuemax="400" aria-valuenow="184" title="드래그하여 너비 조절 · 더블클릭으로 초기화 · 방향키로 조절"></div>
     </aside>
     <section class="workspace">
       <div class="search-toolbar">

@@ -1,7 +1,7 @@
 const api = window.quadfind;
 const $ = selector => document.querySelector(selector);
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-const state = { panes: [], layout: 4, active: 0, query: '', filter: 'all', request: 0, boot: null };
+const state = { panes: [], layout: 4, sidebarWidth: 184, active: 0, query: '', filter: 'all', request: 0, boot: null };
 let toastTimer, searchTimer, saveTimer;
 function toast(message) { $('#toast').textContent = message; $('#toast').classList.add('visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').classList.remove('visible'), 5000); }
 async function call(promise) { const result = await promise; if (!result.ok) throw new Error(result.error); return result.value; }
@@ -50,7 +50,54 @@ function fileType(entry) {
 }
 function sizeLabel(entry) { if (entry.directory) return '—'; const bytes = entry.size; if (bytes < 1024) return `${bytes} B`; if (bytes < 1048576) return `${(bytes / 1024).toFixed(0)} KB`; if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`; return `${(bytes / 1073741824).toFixed(1)} GB`; }
 function dateLabel(value) { const d = new Date(value); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
-function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => call(api.saveLayout({ layout: state.layout, panes: state.panes.map(pane => ({ active: pane.active, tabs: pane.tabs.map(tab => ({path:tab.path})) })) })).catch(error => toast(`레이아웃 저장 실패: ${error.message}`)), 150); }
+function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => call(api.saveLayout({ layout: state.layout, sidebarWidth: state.sidebarWidth, panes: state.panes.map(pane => ({ active: pane.active, tabs: pane.tabs.map(tab => ({path:tab.path})) })) })).catch(error => toast(`레이아웃 저장 실패: ${error.message}`)), 150); }
+function setupSidebar(savedWidth) {
+  const sidebar=$('#sidebar'), handle=$('#sidebar-resizer');
+  let drag=null;
+  const maxWidth=()=>Math.max(150,Math.min(400,window.innerWidth-640));
+  function applyWidth(width, remember=true) {
+    const preferred=Number.isFinite(width)?Math.max(150,Math.min(400,Math.round(width))):184;
+    const actual=Math.min(preferred,maxWidth());
+    if(remember)state.sidebarWidth=preferred;
+    sidebar.style.width=`${actual}px`;
+    handle.setAttribute('aria-valuenow',actual);
+    handle.setAttribute('aria-valuemax',maxWidth());
+    handle.setAttribute('aria-valuetext',`${actual}픽셀`);
+  }
+  function finish(cancel=false) {
+    if(!drag)return;
+    const previous=drag;drag=null;
+    if(cancel)applyWidth(previous.preferred);
+    document.body.classList.remove('resizing-sidebar');
+    if(handle.hasPointerCapture(previous.id))handle.releasePointerCapture(previous.id);
+    if(!cancel)save();
+  }
+  applyWidth(savedWidth);
+  handle.addEventListener('pointerdown',event=>{
+    if(event.button!==0||drag)return;
+    event.preventDefault();handle.focus();
+    drag={id:event.pointerId,x:event.clientX,width:sidebar.getBoundingClientRect().width,preferred:state.sidebarWidth};
+    handle.setPointerCapture(event.pointerId);
+    document.body.classList.add('resizing-sidebar');
+  });
+  handle.addEventListener('pointermove',event=>{
+    if(drag&&event.pointerId===drag.id)applyWidth(Math.min(maxWidth(),drag.width+event.clientX-drag.x));
+  });
+  handle.addEventListener('pointerup',()=>finish());
+  handle.addEventListener('pointercancel',()=>finish(true));
+  handle.addEventListener('lostpointercapture',()=>finish());
+  window.addEventListener('blur',()=>finish());
+  window.addEventListener('resize',()=>applyWidth(state.sidebarWidth,false));
+  handle.addEventListener('dblclick',()=>{applyWidth(184);save();});
+  handle.addEventListener('keydown',event=>{
+    if(!['ArrowLeft','ArrowRight','Home','End','Escape'].includes(event.key))return;
+    event.preventDefault();
+    if(event.key==='Escape'){finish(true);return;}
+    const current=sidebar.getBoundingClientRect().width,step=event.shiftKey?20:10;
+    applyWidth(event.key==='Home'?150:event.key==='End'?maxWidth():current+(event.key==='ArrowRight'?step:-step));
+    save();
+  });
+}
 function setActive(index) { state.active = index; document.querySelectorAll('.pane').forEach((element, i) => element.classList.toggle('active', i === index)); }
 function applyLayout(value) { state.layout = value; if (state.active >= value) state.active = 0; $('#panes').className = `panes layout-${value}`; document.querySelectorAll('[data-layout]').forEach(button => { const active = Number(button.dataset.layout) === value; button.classList.toggle('active', active); button.setAttribute('aria-pressed', active); }); state.panes.forEach((pane, i) => { pane.element.hidden = i >= value; }); setActive(state.active); save(); }
 
@@ -139,6 +186,7 @@ async function init() {
   if (boot.preview) $('#preview-label').textContent='디자인 미리보기 · 예시 데이터';
   $('#scope-label').textContent=`${boot.roots.length}개 폴더에서 검색`;
   const saved=boot.layout;
+  setupSidebar(saved?.sidebarWidth);
   const defaults=[boot.places.find(item=>item.icon==='document')?.path,boot.places.find(item=>item.icon==='document')?.path,boot.places.find(item=>item.icon==='image')?.path,boot.places.find(item=>item.icon==='download')?.path];
   for(let i=0;i<4;i++) {
     const element=document.createElement('section'); element.className='pane'; element.setAttribute('aria-label',`탐색 패널 ${i+1}`); $('#panes').append(element);

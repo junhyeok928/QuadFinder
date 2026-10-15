@@ -8,6 +8,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'quadfinder', privileges: { stan
 const smoke = process.argv.includes('--smoke-test');
 const designPreview = !app.isPackaged && process.argv.includes('--design-preview');
 if (smoke) app.setPath('userData', path.join(app.getAppPath(), 'output', 'smoke-profile'));
+if (designPreview) app.setPath('userData', path.join(app.getAppPath(), 'output', 'design-profile'));
 let window;
 let worker;
 let searchId = 0;
@@ -18,6 +19,34 @@ let places = [];
 let layout;
 let saveQueue = Promise.resolve();
 const stateFile = () => path.join(app.getPath('userData'), 'layout.json');
+
+async function checkSidebarResize() {
+  await window.webContents.executeJavaScript(`document.querySelector('#sidebar-resizer').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`);
+  const measure=()=>window.webContents.executeJavaScript(`({width:document.querySelector('#sidebar').getBoundingClientRect().width,x:Math.round(document.querySelector('#sidebar-resizer').getBoundingClientRect().x+4),y:200})`);
+  const drag=async delta=>{
+    const rect=await measure();
+    window.webContents.sendInputEvent({type:'mouseMove',x:rect.x,y:rect.y});
+    await new Promise(resolve=>setTimeout(resolve,30));
+    window.webContents.sendInputEvent({type:'mouseDown',x:rect.x,y:rect.y,button:'left',clickCount:1});
+    await new Promise(resolve=>setTimeout(resolve,30));
+    window.webContents.sendInputEvent({type:'mouseMove',x:rect.x+delta,y:rect.y,button:'left',modifiers:['leftButtonDown']});
+    await new Promise(resolve=>setTimeout(resolve,30));
+    window.webContents.sendInputEvent({type:'mouseUp',x:rect.x+delta,y:rect.y,button:'left',clickCount:1});
+    await new Promise(resolve=>setTimeout(resolve,50));
+    return (await measure()).width;
+  };
+  const expanded=await drag(90);
+  const shrunk=await drag(-50);
+  const minimum=await drag(-200);
+  const maximum=await drag(600);
+  await window.webContents.executeJavaScript(`document.querySelector('#sidebar-resizer').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`);
+  window.webContents.sendInputEvent({type:'keyDown',keyCode:'Right'});
+  window.webContents.sendInputEvent({type:'keyUp',keyCode:'Right'});
+  await new Promise(resolve=>setTimeout(resolve,50));
+  const keyboard=(await measure()).width;
+  const styles=await window.webContents.executeJavaScript(`({stuck:document.body.classList.contains('resizing-sidebar'),gradient:getComputedStyle(document.querySelector('#filters button.active')).backgroundImage,shadow:getComputedStyle(document.querySelector('#filters button.active')).boxShadow,statusGradient:getComputedStyle(document.querySelector('.statusbar')).backgroundImage,navFont:getComputedStyle(document.querySelector('#places button')).fontSize})`);
+  return {expanded,shrunk,minimum,maximum,keyboard,works:expanded===274 && shrunk===224 && minimum===150 && maximum===Math.min(400,window.getContentBounds().width-640) && keyboard===194 && !styles.stuck && styles.gradient==='none' && styles.shadow==='none' && styles.statusGradient==='none' && styles.navFont==='12px'};
+}
 
 function startIndex() {
   if (worker) worker.terminate();
@@ -123,7 +152,7 @@ async function setup() {
   handle('index:rebuild', () => { startIndex(); return roots; });
   handle('layout:save', async value => {
     if (!value || ![1, 2, 4].includes(value.layout) || !Array.isArray(value.panes) || value.panes.length !== 4) throw new Error('잘못된 레이아웃입니다.');
-    const clean = { layout: value.layout, panes: value.panes.map(pane => {
+    const clean = { layout: value.layout, sidebarWidth: Number.isFinite(value.sidebarWidth) ? Math.max(150,Math.min(400,Math.round(value.sidebarWidth))) : 184, panes: value.panes.map(pane => {
       if (!Array.isArray(pane.tabs) || pane.tabs.length < 1 || pane.tabs.length > 20) throw new Error('탭 개수를 확인하세요.');
       return { active: Math.max(0, Math.min(pane.tabs.length - 1, Number(pane.active) || 0)), tabs: pane.tabs.map(tab => ({ path: localPath(tab.path) })) };
     }) };
@@ -131,6 +160,7 @@ async function setup() {
       await fs.mkdir(app.getPath('userData'), { recursive: true });
       await fs.writeFile(stateFile() + '.tmp', JSON.stringify(clean, null, 2));
       await fs.rename(stateFile() + '.tmp', stateFile());
+      layout=clean;
     });
     await saveQueue;
   });
@@ -150,13 +180,17 @@ async function setup() {
     const capture=async name=>fs.writeFile(path.join(app.getAppPath(),'output',name),(await window.webContents.capturePage()).toPNG());
     await capture('design-refined.png');
     const checks=await window.webContents.executeJavaScript(`({ready:window.__quadfinderReady===true,rows:document.querySelectorAll('.file-row').length,colourFiles:document.querySelectorAll('.file-icon.word,.file-icon.excel,.file-icon.pdf').length,toolbarHeight:document.querySelector('.search-toolbar').getBoundingClientRect().height,firstPaneY:document.querySelector('.pane').getBoundingClientRect().y,overflow:document.documentElement.scrollWidth>innerWidth})`);
+    checks.sidebarResize=await checkSidebarResize();
     window.setSize(1000,680);
     await new Promise(resolve=>setTimeout(resolve,200));
     await capture('design-compact.png');
     checks.compactOverflow=await window.webContents.executeJavaScript('document.documentElement.scrollWidth>innerWidth || document.querySelector(".search-toolbar").getBoundingClientRect().right>innerWidth');
+    await window.webContents.executeJavaScript(`document.querySelector('#sidebar-resizer').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))`);
+    await capture('design-sidebar-wide.png');
+    checks.wideSidebarOverflow=await window.webContents.executeJavaScript('document.documentElement.scrollWidth>innerWidth || document.querySelector(".search-toolbar").getBoundingClientRect().right>innerWidth');
     await fs.writeFile(path.join(app.getAppPath(),'output','design-checks.json'),JSON.stringify(checks,null,2));
     console.log(JSON.stringify(checks));
-    app.exit(checks.ready && checks.rows>=20 && checks.colourFiles>0 && !checks.overflow && !checks.compactOverflow ? 0 : 1);
+    app.exit(checks.ready && checks.rows>=20 && checks.colourFiles>0 && !checks.overflow && !checks.compactOverflow && !checks.wideSidebarOverflow && checks.sidebarResize.works ? 0 : 1);
   }
   if (smoke) {
     const deadline = Date.now() + 15000;
@@ -186,11 +220,19 @@ async function setup() {
     })()`);
     const thumbnailResult=await window.webContents.executeJavaScript(`window.quadfind.thumbnail(${JSON.stringify(path.join(app.getAppPath(),'docs','design-concept.png'))})`);
     result.thumbnailWorks=thumbnailResult.ok && /^data:image\/png;base64,/.test(thumbnailResult.value);
+    result.sidebarResize=await checkSidebarResize();
+    await new Promise(resolve=>setTimeout(resolve,250));
+    await saveQueue;
+    result.sidebarSaved=JSON.parse(await fs.readFile(stateFile(),'utf8')).sidebarWidth===194;
+    await window.loadURL('quadfinder://app/index.html');
+    const restoreDeadline=Date.now()+10000;
+    while(Date.now()<restoreDeadline && !(await window.webContents.executeJavaScript('window.__quadfinderReady===true')))await new Promise(resolve=>setTimeout(resolve,50));
+    result.sidebarRestored=await window.webContents.executeJavaScript('document.querySelector("#sidebar").getBoundingClientRect().width===194');
     await fs.mkdir(path.join(app.getAppPath(), 'output'), { recursive: true });
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.png'), (await window.webContents.capturePage()).toPNG());
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
-    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks ? 0 : 1);
+    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored ? 0 : 1);
   }
 }
 app.whenReady().then(setup).catch(error => { console.error(error); app.exit(1); });
