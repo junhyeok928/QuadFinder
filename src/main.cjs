@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session, nativeImage, screen, clipboard } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -6,6 +6,12 @@ const { Worker } = require('node:worker_threads');
 const { localPath, listDirectory, createFolder } = require('./files.cjs');
 const { OperationQueue, renameItem, normalizeSources } = require('./operations.cjs');
 const { watch } = require('node:fs');
+const windowsShell=require('./windows-shell.cjs');
+const {preview}=require('./file-preview.cjs');
+const {normalize:normalizeView}=require('./view-options.cjs');
+const pdfPreviews=new Map();
+let shellMenuOpen=false;
+async function enrich(entries){if(!entries.length)return entries;const attributes=await windowsShell.request({mode:'attributes',paths:entries.map(entry=>entry.path)});const map=new Map(attributes.map(item=>[item.path.toLowerCase(),item]));return entries.map(entry=>({...entry,...map.get(entry.path.toLowerCase())}));}
 protocol.registerSchemesAsPrivileged([{ scheme: 'quadfinder', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 const smoke = !app.isPackaged && process.argv.includes('--smoke-test');
 const designPreview = !app.isPackaged && process.argv.includes('--design-preview');
@@ -103,8 +109,7 @@ function startIndex() {
   worker = new Worker(path.join(__dirname, 'index-worker.cjs'), { workerData: { roots,excludePaths:[app.getPath('userData')],cachePath:smoke?null:path.join(app.getPath('userData'),'index-cache.json') } });
   worker.on('message', message => {
     if (message.type === 'results') {
-      pending.get(message.id)?.resolve(message);
-      pending.delete(message.id);
+      enrich(message.entries).then(entries=>pending.get(message.id)?.resolve({...message,entries})).catch(error=>pending.get(message.id)?.reject(error)).finally(()=>pending.delete(message.id));
     } else {
       indexStatus = message.type === 'error' ? { ...indexStatus, indexing: false, error: message.message } : message;
       if (!window.isDestroyed()) window.webContents.send('index:status', indexStatus);
@@ -128,6 +133,7 @@ function handle(channel, callback) {
 }
 
 async function setup() {
+  if(!app.isPackaged){const nativeSource=path.join(app.getAppPath(),'native/ShellBridge.cs');try{if((await fs.stat(nativeSource)).mtimeMs>(await fs.stat(windowsShell.executable())).mtimeMs)require('../scripts/build-native.cjs').buildNative();}catch{require('../scripts/build-native.cjs').buildNative();}}
   for (const [key, label, icon] of [['home', '홈', 'home'], ['desktop', '바탕 화면', 'desktop'], ['downloads', '다운로드', 'download'], ['documents', '문서', 'document'], ['pictures', '사진', 'image']]) {
     try { const directory = app.getPath(key); if ((await fs.stat(directory)).isDirectory()) places.push({ label, path: directory, icon }); } catch { /* Missing known folders are not displayed. */ }
   }
@@ -141,9 +147,11 @@ async function setup() {
   try { layout = JSON.parse(await fs.readFile(stateFile(), 'utf8')); } catch { layout = null; }
   zoomFactor=designPreview?1:normalizeZoom(layout?.zoomFactor);
   if(smoke&&layout)layout={...layout,panes:Array.from({length:4},()=>({active:0,tabs:[{path:roots[0]}]}))};
-  protocol.handle('quadfinder', request => {
+  protocol.handle('quadfinder', async request => {
     const url = new URL(request.url);
-    const assets = new Set(['index.html', 'styles.css', 'renderer.js', 'features.js', 'icons.js', 'preview.js']);
+    if(url.hostname==='preview'){const item=pdfPreviews.get(url.pathname.slice(1));if(!item||Date.now()-item.time>3600000)return new Response('Expired',{status:404});const response=await net.fetch(pathToFileURL(item.file).href);return new Response(response.body,{headers:{'Content-Type':'application/pdf','X-Content-Type-Options':'nosniff'}});}
+    if(url.hostname==='app'&&url.pathname==='/view-options.js')return net.fetch(pathToFileURL(path.join(__dirname,'view-options.cjs')).href);
+    const assets = new Set(['index.html', 'styles.css', 'renderer.js', 'features.js', 'view-ui.js', 'icons.js', 'preview.js']);
     const file = url.pathname.slice(1) || 'index.html';
     if (url.hostname !== 'app' || !assets.has(file)) return new Response('Not found', { status: 404 });
     return net.fetch(pathToFileURL(path.join(__dirname, 'renderer', file)).href);
@@ -192,7 +200,19 @@ async function setup() {
     }
     return { places, drives, roots, layout, zoomFactor, indexStatus, jobs:operations.snapshot(), version: app.getVersion(), smoke };
   });
-  handle('files:list', listDirectory);
+  handle('files:list',async value=>{const data=await listDirectory(value);data.entries=await enrich(data.entries);return data;});
+  handle('files:preview',value=>preview(value,{thumbnail:async file=>{const image=await nativeImage.createThumbnailFromPath(file,{width:1200,height:900});const size=nativeImage.createFromPath(file).getSize();return {image:image.toDataURL(),width:size.width,height:size.height};},pdfURL:file=>{const token=require('node:crypto').randomUUID();if(pdfPreviews.size>=64)pdfPreviews.delete(pdfPreviews.keys().next().value);pdfPreviews.set(token,{file,time:Date.now()});return 'quadfinder://preview/'+token;}}));
+  handle('files:clipboard-write',async input=>{if(!input||!['copy','move'].includes(input.kind)||!Array.isArray(input.paths)||!input.paths.length||input.paths.length>10000)throw new Error('잘못된 클립보드 요청입니다.');return windowsShell.request({mode:'clipboard-write',kind:input.kind,paths:input.paths.map(localPath)});});
+  handle('files:clipboard-read',async()=>{const data=await windowsShell.request({mode:'clipboard-read'});return {kind:data.kind,paths:data.paths.filter(value=>{try{localPath(value);return true;}catch{return false;}})};});
+  handle('files:copy-path',async values=>{if(!Array.isArray(values)||values.length>10000)throw new Error('잘못된 경로입니다.');clipboard.writeText(values.map(localPath).map(value=>'"'+value+'"').join('\r\n'));});
+  handle('files:shell-menu',async input=>{
+    if(shellMenuOpen)throw new Error('열린 Windows 메뉴를 먼저 닫으세요.');
+    if(!input||!Array.isArray(input.paths)||!input.paths.length||input.paths.length>1000)throw new Error('파일을 선택하세요.');
+    const paths=input.paths.map(localPath);await Promise.all(paths.map(value=>fs.access(value)));
+    if(input.verb&&!['properties','openas'].includes(input.verb))throw new Error('허용되지 않은 Windows 명령입니다.');
+    const bounds=window.getContentBounds(),point=screen.dipToScreenPoint({x:Math.round(bounds.x+Math.max(0,Math.min(bounds.width,(Number(input.x)||0)*zoomFactor))),y:Math.round(bounds.y+Math.max(0,Math.min(bounds.height,(Number(input.y)||0)*zoomFactor)))});
+    shellMenuOpen=true;try{const result=await windowsShell.request({mode:smoke&&input.probe?'probe':'menu',paths,background:input.background===true,x:point.x,y:point.y,verb:input.verb});if(result?.action&&!['copy','cut','properties','openas','rename'].includes(result.action))filesChanged(paths.concat(paths.map(value=>path.dirname(value))));return result;}finally{shellMenuOpen=false;}
+  });
   handle('files:thumbnail', async value => {
     const file=localPath(value);
     if(!/\.(png|jpe?g|webp|bmp|gif|avif)$/i.test(file))return null;
@@ -253,9 +273,10 @@ async function setup() {
   handle('index:rebuild', () => { startIndex(); return roots; });
   handle('layout:save', async value => {
     if (!value || ![1, 2, 4].includes(value.layout) || !Array.isArray(value.panes) || value.panes.length !== 4) throw new Error('잘못된 레이아웃입니다.');
-    const clean = { layout: value.layout, sidebarWidth: Number.isFinite(value.sidebarWidth) ? Math.max(150,Math.min(400,Math.round(value.sidebarWidth))) : 184, panes: value.panes.map(pane => {
+    const folderViews=Object.fromEntries(Object.entries(value.folderViews||{}).slice(-2000).filter(([key])=>{try{localPath(key);return true;}catch{return false;}}).map(([key,options])=>[key,normalizeView(options)]));
+    const clean = { folderViews, layout: value.layout, sidebarWidth: Number.isFinite(value.sidebarWidth) ? Math.max(150,Math.min(400,Math.round(value.sidebarWidth))) : 184, panes: value.panes.map(pane => {
       if (!Array.isArray(pane.tabs) || pane.tabs.length < 1 || pane.tabs.length > 20) throw new Error('탭 개수를 확인하세요.');
-      return { active: Math.max(0, Math.min(pane.tabs.length - 1, Number(pane.active) || 0)), tabs: pane.tabs.map(tab => ({ path: localPath(tab.path),view:['details','list','icons','tiles'].includes(tab.view)?tab.view:'details' })) };
+      return { active: Math.max(0, Math.min(pane.tabs.length - 1, Number(pane.active) || 0)), tabs: pane.tabs.map(tab => ({ path: localPath(tab.path),view:normalizeView({view:tab.view}).view,options:normalizeView(tab.options||{view:tab.view}) })) };
     }) };
     await writeSettings(clean);
   });
@@ -281,6 +302,9 @@ async function setup() {
     await new Promise(resolve=>setTimeout(resolve,300));
     await capture('design-views.png');
     await window.webContents.executeJavaScript(`document.querySelectorAll('.view-mode').forEach(select=>{select.value='details';select.dispatchEvent(new Event('change'));});`);
+    await window.webContents.executeJavaScript(`showFileMenu(0,500,300)`);await new Promise(resolve=>setTimeout(resolve,100));await capture('design-context-menu.png');
+    await window.webContents.executeJavaScript(`showViewMenu(0,600,180)`);await new Promise(resolve=>setTimeout(resolve,100));await capture('design-view-options.png');
+    await window.webContents.executeJavaScript(`document.querySelector('#context-menu').hidden=true`);
     const checks=await window.webContents.executeJavaScript(`({ready:window.__quadfinderReady===true,rows:document.querySelectorAll('.file-row').length,colourFiles:document.querySelectorAll('.file-icon.word,.file-icon.excel,.file-icon.pdf').length,toolbarHeight:document.querySelector('.search-toolbar').getBoundingClientRect().height,firstPaneY:document.querySelector('.pane').getBoundingClientRect().y,overflow:document.documentElement.scrollWidth>innerWidth})`);
     checks.sidebarResize=await checkSidebarResize();
     window.setSize(1000,680);
@@ -336,6 +360,7 @@ async function setup() {
     await window.webContents.executeJavaScript(`document.querySelector('.view-mode').value='details';document.querySelector('.view-mode').dispatchEvent(new Event('change'));`);
     result.sidebarRestored=await window.webContents.executeJavaScript('document.querySelector("#sidebar").getBoundingClientRect().width===194');
     functionSmokeRoot=await fs.mkdtemp(path.join(app.getAppPath(),'output','functional-smoke-'));
+    result.viewOptions=await require('../scripts/view-smoke.cjs').run({window,root:functionSmokeRoot,appPath:app.getAppPath(),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;}});
     result.fileOperations=await require('../scripts/functional-smoke.cjs').run({window,root:functionSmokeRoot});
     await window.webContents.executeJavaScript(`Promise.all(state.panes.map((_pane,index)=>navigate(index,${JSON.stringify(roots[0])})))`);
     await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;
@@ -347,7 +372,7 @@ async function setup() {
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.png'), (await window.webContents.capturePage()).toPNG());
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
-    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && Object.values(result.views).every(Boolean) && result.viewRestored && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.fileOperations.passed && result.zoom.passed ? 0 : 1);
+    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks && result.pathEditWorks && result.thumbnailWorks && Object.values(result.views).every(Boolean) && result.viewRestored && result.sidebarResize.works && result.sidebarSaved && result.sidebarRestored && result.viewOptions.passed && result.fileOperations.passed && result.zoom.passed ? 0 : 1);
   }
 }
 app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.show();window.focus();}});

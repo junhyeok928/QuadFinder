@@ -4,6 +4,11 @@ if(process.argv.includes('--quadfinder-design-preview')) {
 } else contextBridge.exposeInMainWorld('quadfind', Object.freeze({
   bootstrap: () => ipcRenderer.invoke('bootstrap'),
   list: path => ipcRenderer.invoke('files:list', path),
+  preview:path=>ipcRenderer.invoke('files:preview',path),
+  shellMenu:input=>ipcRenderer.invoke('files:shell-menu',input),
+  writeClipboard:input=>ipcRenderer.invoke('files:clipboard-write',input),
+  readClipboard:()=>ipcRenderer.invoke('files:clipboard-read'),
+  copyPaths:paths=>ipcRenderer.invoke('files:copy-path',paths),
   thumbnail: path => ipcRenderer.invoke('files:thumbnail', path),
   chooseFolder: (addToIndex=true) => ipcRenderer.invoke('files:choose',addToIndex),
   open: path => ipcRenderer.invoke('files:open', path),

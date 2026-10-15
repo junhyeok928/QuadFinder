@@ -7,10 +7,11 @@ function selection(tab){if(!(tab.selection instanceof Set))tab.selection=new Set
 function selectedEntries(index=state.active){const tab=tabOf(state.panes[index]);return tab.entries.filter(entry=>selection(tab).has(entry.path));}
 function updateSelection(index){
   const pane=state.panes[index],tab=tabOf(pane),selected=selection(tab);
-  pane.element.querySelectorAll('.file-row').forEach(row=>{const entry=pane.visibleEntries[Number(row.dataset.row)];const isSelected=selected.has(entry.path);row.classList.toggle('selected',isSelected);row.setAttribute('aria-selected',isSelected);row.classList.toggle('cut',fileClipboard?.kind==='move'&&fileClipboard.paths.includes(entry.path));});
+  pane.element.querySelectorAll('.file-row').forEach(row=>{const entry=pane.visibleEntries[Number(row.dataset.row)];const isSelected=selected.has(entry.path);row.classList.toggle('selected',isSelected);row.setAttribute('aria-selected',isSelected);const check=row.querySelector('.item-check');if(check)check.checked=isSelected;row.classList.toggle('cut',fileClipboard?.kind==='move'&&fileClipboard.paths.includes(entry.path));});
   pane.element.querySelector('.selection-info').textContent=selected.size>1?`${selected.size}개 선택`:selected.size?basename([...selected][0]):'';
+  updateInspector(index);
   const bar=pane.element.querySelector('.file-actions');
-  if(bar)bar.querySelectorAll('[data-file-action]').forEach(button=>{const action=button.dataset.fileAction;button.disabled=['rename','properties'].includes(action)?selected.size!==1:['copy','cut','trash'].includes(action)?!selected.size:action==='paste'?(!fileClipboard||tab.search):false;});
+  if(bar)bar.querySelectorAll('[data-file-action]').forEach(button=>{const action=button.dataset.fileAction;button.disabled=['rename','properties'].includes(action)?selected.size!==1:['copy','cut','trash'].includes(action)?!selected.size:action==='paste'?((!api.readClipboard&&!fileClipboard)||tab.search):false;});
 }
 function chooseEntry(index,entry,event={},list=state.panes[index].visibleEntries){
   const tab=tabOf(state.panes[index]),selected=selection(tab);
@@ -23,14 +24,14 @@ function bindRows(index,rows,sorted){
   const pane=state.panes[index],tab=tabOf(pane);pane.visibleEntries=sorted;
   rows.querySelectorAll('[data-row]').forEach(row=>{
     const entry=sorted[Number(row.dataset.row)];row.draggable=true;
-    row.onclick=event=>chooseEntry(index,entry,event,sorted);
-    row.ondblclick=()=>openEntry(index,entry);
+    row.onclick=event=>chooseEntry(index,entry,event.target.closest('.item-check')?{ctrlKey:true}:event,sorted);
+    row.ondblclick=event=>{if(!event.target.closest('.item-check'))openEntry(index,entry);};
     row.onkeydown=event=>{
       if(event.key==='Enter'&&!event.altKey&&!event.ctrlKey){event.preventDefault();openEntry(index,entry);}
-      if(['ArrowDown','ArrowUp','ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();const columns=getComputedStyle(rows).gridTemplateColumns.split(' ').filter(v=>v&&v!=='none').length||1;const step=({ArrowDown:columns,ArrowUp:-columns,ArrowLeft:-1,ArrowRight:1})[event.key];const next=rows.querySelector(`[data-row="${Number(row.dataset.row)+step}"]`);if(next){const item=sorted[Number(next.dataset.row)];if(!event.ctrlKey)chooseEntry(index,item,event,sorted);next.focus();}}
+      if(['ArrowDown','ArrowUp','ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();const columns=getComputedStyle(rows).gridTemplateColumns.split(' ').filter(v=>v&&v!=='none').length||1;const step=({ArrowDown:columns,ArrowUp:-columns,ArrowLeft:-1,ArrowRight:1})[event.key];const siblings=[...rows.querySelectorAll('[data-row]')],next=siblings[siblings.indexOf(row)+step];if(next){const item=sorted[Number(next.dataset.row)];if(!event.ctrlKey)chooseEntry(index,item,event,sorted);next.focus();}}
       if(event.key===' '){event.preventDefault();chooseEntry(index,entry,{ctrlKey:true},sorted);}
     };
-    row.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();if(!selection(tab).has(entry.path))chooseEntry(index,entry,{},sorted);showFileMenu(index,event.clientX,event.clientY);};
+    row.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();if(!selection(tab).has(entry.path))chooseEntry(index,entry,{},sorted);event.shiftKey?nativeMenu(index,event.clientX,event.clientY):showFileMenu(index,event.clientX,event.clientY);};
     row.ondragstart=event=>{if(!selection(tab).has(entry.path))chooseEntry(index,entry,{},sorted);draggedPaths=selectedEntries(index).map(item=>item.path);event.dataTransfer.setData('application/x-quadfinder',JSON.stringify(draggedPaths));event.dataTransfer.effectAllowed='copyMove';};
     row.ondragend=()=>{draggedPaths=null;document.querySelectorAll('.drop-target').forEach(item=>item.classList.remove('drop-target'));};
   });
@@ -40,8 +41,8 @@ function bindPaneFeatures(index){
   const pane=state.panes[index],element=pane.element,tab=tabOf(pane),table=element.querySelector('.file-table');
   table.setAttribute('aria-multiselectable','true');
   element.querySelectorAll('[data-file-action]').forEach(button=>button.onclick=()=>fileAction(button.dataset.fileAction,index));
-  table.oncontextmenu=event=>{event.preventDefault();setActive(index);showFileMenu(index,event.clientX,event.clientY,true);};
-  table.onclick=event=>{if(!event.target.closest('.file-row,.columns,.load-more')){selection(tab).clear();tab.selected=null;updateSelection(index);}};
+  table.oncontextmenu=event=>{event.preventDefault();setActive(index);event.shiftKey&&!tab.search?nativeMenu(index,event.clientX,event.clientY,true):showFileMenu(index,event.clientX,event.clientY,true);};
+  table.onclick=event=>{if(!event.target.closest('.file-row,.columns,.load-more,.group-heading')){selection(tab).clear();tab.selected=null;updateSelection(index);}};
   table.ondragover=event=>{
     if(tab.search)return;event.preventDefault();event.dataTransfer.dropEffect=event.shiftKey?'move':'copy';
     element.classList.add('drop-target');
@@ -58,14 +59,8 @@ function bindPaneFeatures(index){
   };
   updateSelection(index);
 }
-function showFileMenu(index,x,y,background=false){
-  const menu=$('#context-menu'),entries=selectedEntries(index),tab=tabOf(state.panes[index]);
-  const actions=background?[['paste','붙여넣기','Ctrl V'],['mkdir','새 폴더','Ctrl Shift N'],['refresh','새로고침','F5']]:[['open','열기','Enter'],['reveal','Windows 탐색기에서 표시',''],['other','다른 패널에서 폴더 열기',''],['copy','복사','Ctrl C'],['cut','잘라내기','Ctrl X'],['paste','붙여넣기','Ctrl V'],['rename','이름 변경','F2'],['trash','휴지통으로 이동','Delete'],['properties','파일 정보','Alt Enter']];
-  menu.innerHTML=actions.map(([action,label,key])=>`<button role="menuitem" data-context="${action}" ${((['rename','properties'].includes(action)&&entries.length!==1)||(action==='paste'&&(!fileClipboard||tab.search))||(action==='mkdir'&&tab.search))?'disabled':''}><span>${label}</span><kbd>${key}</kbd></button>`).join('');
-  menu.hidden=false;menu.style.left=`${Math.min(x,innerWidth-menu.offsetWidth-8)}px`;menu.style.top=`${Math.min(y,innerHeight-menu.offsetHeight-8)}px`;
-  menu.querySelectorAll('button').forEach(button=>button.onclick=()=>{menu.hidden=true;fileAction(button.dataset.context,index);});
-  menu.querySelector('button:not(:disabled)')?.focus();
-}
+function showFileMenu(index,x,y,background=false){modernFileMenu(index,x,y,background);}
+
 async function transfer(kind,sources,destination){
   try{if(!api.startOperation)throw new Error('예시 화면에서는 파일 작업을 실행할 수 없습니다.');const id=await call(api.startOperation({kind,sources,destination}));if(id)$('#operations-panel').hidden=false;return id;}
   catch(error){toast(error.message);return null;}
@@ -77,9 +72,11 @@ async function fileAction(action,index=state.active){
     if(action==='copy'||action==='cut'){
       if(!entries.length)return toast('파일이나 폴더를 선택하세요.');
       fileClipboard={kind:action==='cut'?'move':'copy',paths:entries.map(entry=>entry.path)};
+      if(api.writeClipboard)await call(api.writeClipboard(fileClipboard));
       state.panes.forEach((_pane,i)=>updateSelection(i));toast(`${entries.length}개 항목 ${action==='cut'?'잘라내기':'복사'} · 대상 폴더에서 Ctrl+V`);
     }
     if(action==='paste'){
+      if(api.readClipboard){const data=await call(api.readClipboard());fileClipboard=data.paths.length?data:null;}
       if(!fileClipboard)return toast('먼저 복사하거나 잘라내세요.');if(tab.search)return toast('대상 폴더 패널을 선택하세요.');
       const id=await transfer(fileClipboard.kind,fileClipboard.paths,tab.path);if(id&&fileClipboard.kind==='move')fileClipboard=null;
       state.panes.forEach((_pane,i)=>updateSelection(i));
@@ -96,6 +93,8 @@ async function fileAction(action,index=state.active){
     if(action==='open'&&entries[0]){if(entries[0].directory)await navigate(index,entries[0].path);else await call(api.open(entries[0].path));}
     if(action==='reveal'&&entries[0])await call(api.reveal(entries[0].path));
     if(action==='other'&&entries[0]){if(state.layout===1)applyLayout(2);const target=index===0?1:0;await navigate(target,entries[0].directory?entries[0].path:entries[0].parent);setActive(target);}
+    if(action==='path'&&entries.length&&api.copyPaths){await call(api.copyPaths(entries.map(entry=>entry.path)));toast('경로를 복사했습니다.');}
+    if(['properties','openas'].includes(action)&&entries[0]&&api.shellMenu){const rect=pane.element.getBoundingClientRect();await nativeMenu(index,rect.x+40,rect.y+60,false,action==='openas'?'openas':'properties');return;}
     if(action==='properties'&&entries[0]){
       const entry=entries[0];$('#properties-content').innerHTML=`<dl><dt>이름</dt><dd>${escapeHTML(entry.name)}</dd><dt>위치</dt><dd>${escapeHTML(entry.path)}</dd><dt>유형</dt><dd>${escapeHTML(typeLabel(entry))}</dd><dt>크기</dt><dd>${entry.directory?'폴더':`${sizeLabel(entry)} (${entry.size.toLocaleString()} 바이트)`}</dd><dt>수정</dt><dd>${escapeHTML(dateLabel(entry.modified))}</dd></dl>`;$('#properties-dialog').showModal();
     }
@@ -143,13 +142,17 @@ function initFeatures(boot){
   $('#show-operations').onclick=()=>$('#operations-panel').hidden=!$('#operations-panel').hidden;
   $('#close-jobs').onclick=()=>$('#operations-panel').hidden=true;
   $('#clear-jobs').onclick=()=>api.clearOperations?call(api.clearOperations()).catch(error=>toast(error.message)):renderJobs([]);
+  window.addEventListener('focus',()=>{if(api.readClipboard)call(api.readClipboard()).then(data=>{fileClipboard=data.paths.length?data:null;state.panes.forEach((_,i)=>updateSelection(i));}).catch(()=>{});});
   api.onOperations?.(renderJobs);api.onFilesChanged?.(queueRefresh);api.onRoots?.(renderRoots);renderJobs(boot.jobs||[]);renderRoots(boot.roots);
   document.addEventListener('pointerdown',event=>{if(!event.target.closest('#context-menu'))$('#context-menu').hidden=true;});
   document.addEventListener('keydown',event=>{
-    if((event.target instanceof Element&&event.target.closest('input,textarea'))||document.querySelector('dialog[open]'))return;
+    if((event.target instanceof Element&&event.target.closest('input:not([type="checkbox"]),textarea,select'))||document.querySelector('dialog[open]'))return;
     if(event.key==='Escape'){$('#context-menu').hidden=true;return;}
     const menu=$('#context-menu');if(!menu.hidden&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();const buttons=[...menu.querySelectorAll('button:not(:disabled)')],index=buttons.indexOf(document.activeElement);buttons[(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus();return;}
+    if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){event.preventDefault();const row=document.activeElement.closest?.('.file-row'),rect=(row||state.panes[state.active].element.querySelector('.file-table')).getBoundingClientRect();showFileMenu(state.active,rect.x+20,rect.y+20,!selectedEntries().length);return;}
     const key=event.key.toLowerCase();let action;
+    if(event.ctrlKey&&event.shiftKey&&key==='c')action='path';
+    if(event.altKey&&key==='p'){event.preventDefault();setView(state.active,{inspector:viewOf(tabOf(state.panes[state.active])).inspector==='preview'?'off':'preview'});return;}
     if(event.ctrlKey&&!event.shiftKey)action=({c:'copy',x:'cut',v:'paste'})[key];
     if(event.key==='F2')action='rename';if(event.key==='Delete')action='trash';if(event.altKey&&event.key==='Enter')action='properties';
     if(event.ctrlKey&&event.shiftKey&&key==='n')action='mkdir';if(event.key==='F6')action='move-to';

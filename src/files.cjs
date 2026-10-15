@@ -19,7 +19,7 @@ async function listDirectory(value) {
       try {
         const stat = await fs.lstat(fullPath);
         return { name: item.name, path: fullPath, parent: directory, directory: item.isDirectory(),
-          link: item.isSymbolicLink(), size: stat.size, modified: stat.mtimeMs, extension: path.extname(item.name).toLowerCase() };
+          link: item.isSymbolicLink(), size: stat.size, modified: stat.mtimeMs, created:stat.birthtimeMs, accessed:stat.atimeMs, hidden:item.name.startsWith('.'), extension: path.extname(item.name).toLowerCase() };
       } catch { return null; }
     })));
   }

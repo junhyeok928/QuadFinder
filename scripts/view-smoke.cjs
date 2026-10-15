@@ -1,0 +1,38 @@
+const fs=require('node:fs/promises');const path=require('node:path');const assert=require('node:assert/strict');const {execFileSync}=require('node:child_process');
+async function run({window,root,appPath,saveComplete}){
+  const folder=path.join(root,'보기 테스트');await fs.mkdir(folder);await fs.mkdir(path.join(folder,'자료'));
+  const text=path.join(folder,'alpha.txt'),image=path.join(folder,'photo.png'),pdf=path.join(folder,'document.pdf'),hidden=path.join(folder,'숨긴파일.txt');
+  await fs.writeFile(text,'한글 미리보기 <script>window.injected=true</script>');await fs.copyFile(path.join(appPath,'docs/design-concept.png'),image);await fs.writeFile(pdf,await window.webContents.printToPDF({pageSize:'A4'}));await fs.writeFile(hidden,'hidden');execFileSync('attrib.exe',['+H',hidden],{windowsHide:true});
+  const evaluate=code=>window.webContents.executeJavaScript(code),wait=async code=>{for(let i=0;i<150;i++){if(await evaluate(code))return;await new Promise(resolve=>setTimeout(resolve,40));}throw new Error('View UI timeout: '+code);};
+  await evaluate(`applyLayout(1);navigate(0,${JSON.stringify(folder)})`);await evaluate(`setView(0,ViewOptions.normalize())`);
+  assert.equal(await evaluate(`state.panes[0].element.querySelectorAll('.file-row').length`),4);
+  await evaluate(`showViewMenu(0,400,250);document.querySelector('[data-view-panel="show"]').click();document.querySelector('[data-view-key="showHidden"]').click();setView(0,{checkboxes:true,showExtensions:false})`);
+  assert.equal(await evaluate(`state.panes[0].element.querySelectorAll('.file-row').length`),5);
+  assert(await evaluate(`(()=>{const row=[...state.panes[0].element.querySelectorAll('.file-row')].find(r=>r.title===${JSON.stringify(text)});row.querySelector('input').click();return row.querySelector('input').checked&&row.classList.contains('selected')&&row.querySelector('.entry-label').textContent==='alpha';})()`));
+  assert(await evaluate(`(()=>{state.panes[0].element.querySelector('.item-check').dispatchEvent(new KeyboardEvent('keydown',{key:'a',ctrlKey:true,bubbles:true}));return selection(tabOf(state.panes[0])).size===5;})()`));
+  const modes=await evaluate(`(()=>{const results={};for(const mode of Object.keys(viewModes)){setView(0,{view:mode});results[mode]=state.panes[0].element.querySelector('.file-table').classList.contains('view-'+mode)&&state.panes[0].element.querySelectorAll('.file-row').length===5;}return results;})()`);assert(Object.values(modes).every(Boolean));
+  await evaluate(`setView(0,{view:'details',group:'type'})`);
+  assert(await evaluate(`(()=>{const pane=state.panes[0].element,before=pane.querySelectorAll('.file-row').length,group=pane.querySelector('.group-heading');group.click();const less=pane.querySelectorAll('.file-row').length<before;pane.querySelector('.group-heading').click();return less&&pane.querySelectorAll('.file-row').length===before;})()`));
+  await evaluate(`setView(0,{group:'none',sort:'name',desc:true});showColumnDialog(0);document.querySelector('[data-toggle-column="created"]').click();document.querySelector('#apply-columns').click();`);
+  assert(await evaluate(`viewOf(tabOf(state.panes[0])).columns.some(c=>c.id==='created')`));
+  await evaluate(`(()=>{const columns=state.panes[0].element.querySelectorAll('.column'),data=new DataTransfer();columns[0].dispatchEvent(new DragEvent('dragstart',{dataTransfer:data,bubbles:true}));columns[1].dispatchEvent(new DragEvent('drop',{dataTransfer:data,bubbles:true,cancelable:true}));})()`);
+  assert.equal(await evaluate(`viewOf(tabOf(state.panes[0])).columns[1].id`),'name');
+  const rect=await evaluate(`(()=>{const r=state.panes[0].element.querySelector('[data-resize="name"]').getBoundingClientRect();return {x:Math.round(r.x+3),y:Math.round(r.y+10),width:viewOf(tabOf(state.panes[0])).columns.find(c=>c.id==='name').width};})()`);
+  window.webContents.sendInputEvent({type:'mouseMove',x:rect.x,y:rect.y});await new Promise(resolve=>setTimeout(resolve,40));window.webContents.sendInputEvent({type:'mouseDown',x:rect.x,y:rect.y,button:'left',clickCount:1});await new Promise(resolve=>setTimeout(resolve,30));window.webContents.sendInputEvent({type:'mouseMove',x:rect.x+40,y:rect.y,button:'left',modifiers:['leftButtonDown']});await new Promise(resolve=>setTimeout(resolve,30));window.webContents.sendInputEvent({type:'mouseUp',x:rect.x+40,y:rect.y,button:'left',clickCount:1});await new Promise(resolve=>setTimeout(resolve,60));
+  assert.equal(await evaluate(`viewOf(tabOf(state.panes[0])).columns.find(c=>c.id==='name').width`),rect.width+40);
+  await evaluate(`setView(0,{inspector:'preview'});[...state.panes[0].element.querySelectorAll('.file-row')].find(r=>r.title===${JSON.stringify(text)}).click()`);
+  await wait(`state.panes[0].element.querySelector('.inspector-content pre')?.textContent.includes('<script>window.injected=true</script>')`);assert.equal(await evaluate('window.injected'),undefined);
+  await evaluate(`[...state.panes[0].element.querySelectorAll('.file-row')].find(r=>r.title===${JSON.stringify(image)}).click()`);await wait(`state.panes[0].element.querySelector('.inspector-content img')?.naturalWidth>0`);
+  await evaluate(`setView(0,{inspector:'details'})`);await wait(`state.panes[0].element.querySelector('.inspector-content').textContent.includes('해상도')`);
+  await evaluate(`setView(0,{inspector:'preview'});[...state.panes[0].element.querySelectorAll('.file-row')].find(r=>r.title===${JSON.stringify(pdf)}).click()`);await wait(`state.panes[0].element.querySelector('.inspector-content iframe')?.src.startsWith('quadfinder://preview/')`);
+  await new Promise(resolve=>setTimeout(resolve,1200));await fs.writeFile(path.join(appPath,'output','preview-pdf.png'),(await window.webContents.capturePage()).toPNG());
+  const native=await evaluate(`call(api.shellMenu({paths:[${JSON.stringify(text)}],probe:true}))`);assert(native.count>5);
+  await evaluate(`setView(0,{inspector:'off'});showFileMenu(0,400,250)`);assert(await evaluate(`document.querySelectorAll('#context-menu .menu-command-bar button').length===4&&!!document.querySelector('[data-context="more"]')`));
+  await fs.writeFile(path.join(appPath,'output','context-menu.png'),(await window.webContents.capturePage()).toPNG());await evaluate(`document.querySelector('#context-menu').hidden=true`);
+  await evaluate(`navigate(0,${JSON.stringify(root)})`);await evaluate(`navigate(0,${JSON.stringify(folder)})`);assert(await evaluate(`viewOf(tabOf(state.panes[0])).checkboxes&&viewOf(tabOf(state.panes[0])).columns[1].id==='name'&&!viewOf(tabOf(state.panes[0])).showExtensions`));
+  await saveComplete();await window.loadURL('quadfinder://app/index.html');await wait('window.__quadfinderReady===true');
+  assert(await evaluate(`viewOf(tabOf(state.panes[0])).checkboxes&&viewOf(tabOf(state.panes[0])).columns[1].id==='name'`));
+  await evaluate(`setView(0,ViewOptions.normalize());applyLayout(4);`);
+  return {passed:true,modes,hiddenAttributes:true,checkboxes:true,extensionLabels:true,groups:true,columns:true,columnDrag:true,columnResize:true,textPreview:true,imagePreview:true,pdfFrame:true,details:true,folderRestored:true,nativeMenuItems:native.count,modernMenu:true};
+}
+module.exports={run};
