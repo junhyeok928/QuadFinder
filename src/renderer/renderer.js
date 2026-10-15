@@ -163,6 +163,13 @@ function navigateHistory(direction,index=state.active) {
   if(tab.loading||next<0||next>=tab.history.length)return;
   tab.cursor=next;return navigate(index,tab.history[next],false);
 }
+let lastHistoryInput=null;
+function historyInput(direction,source){
+  const now=performance.now();
+  // Some drivers emit both a Windows command and a Chromium side-button event.
+  if(lastHistoryInput&&lastHistoryInput.direction===direction&&lastHistoryInput.source!==source&&now-lastHistoryInput.time<180)return;
+  lastHistoryInput={direction,source,time:now};return navigateHistory(direction);
+}
 function editPath(index) { const pane=state.panes[index];if(tabOf(pane).search)return;const input=pane.element.querySelector('.path-input');pane.element.querySelector('.breadcrumbs').hidden=true;input.hidden=false;input.focus();input.select(); }
 async function navigate(index, path, history=true, preserve=false) {
   const pane = state.panes[index], tab = tabOf(pane), previous = tab.path;
@@ -267,7 +274,10 @@ async function init() {
     if(event.altKey&&event.key==='ArrowUp'){event.preventDefault();const tab=tabOf(state.panes[state.active]);navigate(state.active,tab.parent||tab.path);}
   });
   applyLayout([1,2,4].includes(saved?.layout)?saved.layout:4);
-  api.onHistory?.(direction=>navigateHistory(direction));
+  api.onHistory?.(direction=>historyInput(direction,'windows'));
+  const sideButton=event=>event.button===3||event.button===4;
+  for(const type of ['pointerdown','mousedown','auxclick'])document.addEventListener(type,event=>{if(sideButton(event)){event.preventDefault();event.stopPropagation();}},true);
+  document.addEventListener('pointerup',event=>{if(!sideButton(event))return;event.preventDefault();event.stopPropagation();historyInput(event.button===3?-1:1,'mouse');},true);
   api.onIndex(updateIndex); updateIndex(boot.indexStatus);
   await Promise.all(state.panes.map((_pane,i)=>load(i)));
   initFeatures(boot);
