@@ -256,6 +256,7 @@ async function readDrives(){
   handle('files:copy-path',async values=>{if(!Array.isArray(values)||values.length>10000)throw new Error('잘못된 경로입니다.');clipboard.writeText(values.map(localPath).map(value=>'"'+value+'"').join('\r\n'));});
   handle('files:shell-menu',async input=>{
     if(shellMenuOpen)throw new Error('열린 Windows 메뉴를 먼저 닫으세요.');
+    if(undo.busy&&!input?.verb&&!input?.probe)throw new Error('실행 취소 처리가 끝난 뒤 Windows 메뉴를 여세요.');
     if(!input||!Array.isArray(input.paths)||!input.paths.length||input.paths.length>1000)throw new Error('파일을 선택하세요.');
     const paths=input.paths.map(localPath);await Promise.all(paths.map(value=>fs.access(value)));
     if(input.verb&&!['properties','openas'].includes(input.verb))throw new Error('허용되지 않은 Windows 명령입니다.');
@@ -289,7 +290,7 @@ async function readDrives(){
     return true;
   });
   handle('files:reveal', async value => { const file = localPath(value); await fs.access(file); shell.showItemInFolder(file); });
-  handle('files:mkdir', async(...args)=>{const file=await createFolder(...args);filesChanged([file]);return file;});
+  handle('files:mkdir', async(...args)=>{if(undo.busy)throw new Error('실행 취소 처리가 끝난 뒤 폴더를 만드세요.');const file=await createFolder(...args);filesChanged([file]);return file;});
   handle('files:rename',async(source,name)=>{if(undo.busy||operations.active())throw new Error('진행 중인 작업이 끝난 뒤 이름을 변경하세요.');const target=await renameItem(source,name);if(target!==source)try{await undo.record([{kind:'rename',source,target}],'이름 변경');}catch(error){send('view:error','실행 취소 기록 실패: '+error.message);}filesChanged([source,target]);return target;});
   handle('files:watch',async values=>{
     if(!Array.isArray(values)||values.length>4)throw new Error('잘못된 폴더 목록입니다.');
