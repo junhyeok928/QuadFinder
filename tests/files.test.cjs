@@ -18,6 +18,11 @@ test('local path and Windows names reject network paths, traversal and reserved 
   for(const value of ['relative','\\\\server\\share','//server/share','C:\\bad\0'])assert.throws(()=>localPath(value));
   for(const name of ['..','../bad','a/b','CON','com1.txt','name.','name ','bad:name',''])assert.throws(()=>childPath(process.cwd(),name));
 });
+test('search supports wildcard, quoted phrase, extension, path and size terms',()=>{
+  const entry={name:'프로젝트 최종 보고서.pdf',path:'C:\\Documents\\프로젝트 최종 보고서.pdf',directory:false,size:2*1024**2,modified:Date.now()};
+  assert(matches(entry,'*.pdf "최종 보고서" ext:pdf;docx size:>1mb path:documents'));
+  assert(!matches(entry,'*.xlsx'));assert(!matches(entry,'size:<1mb'));assert(!matches(entry,'"보고서 최종"'));assert(!matches({...entry,directory:true},'size:>1mb'));
+});
 test('new folder refuses collisions and leaves existing files intact',async()=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'quadfinder-test-'));
   try{await createFolder(root,'자료');await assert.rejects(createFolder(root,'자료'),{code:'EEXIST'});assert((await fs.stat(path.join(root,'자료'))).isDirectory());}finally{await fs.rm(root,{recursive:true,force:true});}

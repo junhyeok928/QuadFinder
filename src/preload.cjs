@@ -5,10 +5,18 @@ if(process.argv.includes('--quadfinder-design-preview')) {
   bootstrap: () => ipcRenderer.invoke('bootstrap'),
   list: path => ipcRenderer.invoke('files:list', path),
   thumbnail: path => ipcRenderer.invoke('files:thumbnail', path),
-  chooseFolder: () => ipcRenderer.invoke('files:choose'),
+  chooseFolder: (addToIndex=true) => ipcRenderer.invoke('files:choose',addToIndex),
   open: path => ipcRenderer.invoke('files:open', path),
   reveal: path => ipcRenderer.invoke('files:reveal', path),
   mkdir: (parent, name) => ipcRenderer.invoke('files:mkdir', parent, name),
+  rename:(source,name)=>ipcRenderer.invoke('files:rename',source,name),
+  watch:paths=>ipcRenderer.invoke('files:watch',paths),
+  startOperation:input=>ipcRenderer.invoke('operations:start',input),
+  cancelOperation:id=>ipcRenderer.invoke('operations:cancel',id),
+  clearOperations:()=>ipcRenderer.invoke('operations:clear'),
+  removeRoot:path=>ipcRenderer.invoke('roots:remove',path),
+  addRoot:path=>ipcRenderer.invoke('roots:add',path),
+  dropPaths:files=>files.map(file=>require('electron').webUtils.getPathForFile(file)),
   search: (query, filter) => ipcRenderer.invoke('search', query, filter),
   reindex: () => ipcRenderer.invoke('index:rebuild'),
   saveLayout: state => ipcRenderer.invoke('layout:save', state),
@@ -17,5 +25,8 @@ if(process.argv.includes('--quadfinder-design-preview')) {
     const handler = (_event, data) => callback(data);
     ipcRenderer.on('index:status', handler);
     return () => ipcRenderer.removeListener('index:status', handler);
-  }
+  },
+  onFilesChanged:callback=>{const handler=()=>callback();ipcRenderer.on('files:changed',handler);return ()=>ipcRenderer.removeListener('files:changed',handler);},
+  onOperations:callback=>{const handler=(_event,data)=>callback(data);ipcRenderer.on('operations:changed',handler);return ()=>ipcRenderer.removeListener('operations:changed',handler);},
+  onRoots:callback=>{const handler=(_event,data)=>callback(data);ipcRenderer.on('roots:changed',handler);return ()=>ipcRenderer.removeListener('roots:changed',handler);}
 }));

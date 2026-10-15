@@ -105,7 +105,7 @@ function renderPane(index) {
   const pane = state.panes[index], tab = tabOf(pane), element = pane.element;
   element.innerHTML = `<div class="tabs-bar"><div class="tabs">${pane.tabs.map((item,i) => `<div class="tab ${pane.active===i?'current':''}"><button data-tab="${i}" title="${escapeHTML(item.path)}">${icon(tabIcon(item))}<span>${escapeHTML(item.search?'검색 결과':tabLabel(item.path))}</span></button><button class="close-tab" data-close="${i}" aria-label="${escapeHTML(tabLabel(item.path))} 탭 닫기">×</button></div>`).join('')}</div><button class="new-tab" title="새 탭 (Ctrl+T)" aria-label="패널 ${index+1} 새 탭">${icon('plus')}</button></div>
     <div class="navigation"><button data-action="back" title="뒤로" aria-label="패널 ${index+1} 뒤로" ${tab.cursor<=0?'disabled':''}>${icon('left')}</button><button data-action="forward" title="앞으로" aria-label="패널 ${index+1} 앞으로" ${tab.cursor>=tab.history.length-1?'disabled':''}>${icon('right')}</button><button data-action="up" title="상위 폴더" aria-label="패널 ${index+1} 상위 폴더">${icon('up')}</button><div class="address ${tab.search?'search-address':''}" title="${escapeHTML(tab.search?'즐겨찾기와 추가한 폴더에서 검색':tab.path+' · 더블클릭 또는 Ctrl+L로 경로 입력')}">${tab.search?`${icon('drive')}<span class="search-scope">검색 폴더</span>`:`<div class="breadcrumbs">${breadcrumbs(tab.path)}</div>`}<input class="path-input" hidden aria-label="패널 ${index+1} 폴더 경로" value="${escapeHTML(tab.path)}" ${tab.search?'readonly':''}></div><button class="refresh-button" data-action="refresh" title="새로고침" aria-label="패널 ${index+1} 새로고침">${icon('refresh')}</button><button data-action="mkdir" title="새 폴더" aria-label="패널 ${index+1} 새 폴더" ${tab.search?'disabled':''}>${icon('new-folder')}</button></div>
-    <div class="file-table" role="listbox" aria-label="패널 ${index+1} 파일 목록"><div class="columns"><button data-sort="name">이름</button><button data-sort="modified">${tab.search?'위치':'수정한 날짜'}</button><button class="size-label" data-sort="size">크기</button><span class="file-extra">${tab.search?'수정한 날짜':'유형'}</span></div><div class="rows"></div></div><div class="pane-footer"><span class="item-count"></span><span class="selection-info"></span></div>`;
+    <div class="file-table" role="listbox" aria-label="패널 ${index+1} 파일 목록"><div class="columns"><button data-sort="name">이름</button><button data-sort="modified">${tab.search?'위치':'수정한 날짜'}</button><button class="size-label" data-sort="size">크기</button><span class="file-extra">${tab.search?'수정한 날짜':'유형'}</span></div><div class="rows"></div></div><div class="pane-footer"><span class="item-count"></span><span class="selection-info"></span><div class="file-actions"><button data-file-action="copy" title="복사 (Ctrl+C)">복사</button><button data-file-action="cut" title="잘라내기 (Ctrl+X)">잘라내기</button><button data-file-action="paste" title="붙여넣기 (Ctrl+V)">붙여넣기</button><button data-file-action="menu" title="파일 작업 메뉴" aria-label="패널 ${index+1} 파일 작업 메뉴">⋯</button></div></div>`;
   element.querySelectorAll('[data-tab]').forEach(button => button.onclick = () => { pane.active = Number(button.dataset.tab); setActive(index); renderPane(index); load(index); save(); });
   element.querySelectorAll('[data-close]').forEach(button => button.onclick = () => { if (pane.tabs.length === 1) return toast('마지막 탭은 닫을 수 없습니다.'); pane.tabs.splice(Number(button.dataset.close), 1); pane.active = Math.min(pane.active, pane.tabs.length-1); renderPane(index); load(index); save(); });
   element.querySelector('.new-tab').onclick = () => newTab(index);
@@ -123,6 +123,7 @@ function renderPane(index) {
   });
   element.querySelectorAll('[data-sort]').forEach(button => button.onclick = () => { const sort = button.dataset.sort; pane.desc = pane.sort===sort?!pane.desc:false; pane.sort = sort; renderPane(index); });
   renderRows(index);
+  bindPaneFeatures(index);
 }
 function renderRows(index) {
   const pane = state.panes[index], tab = tabOf(pane), element = pane.element;
@@ -132,22 +133,17 @@ function renderRows(index) {
   } else {
     const sorted = pane.sort==='none' ? [...tab.entries] : [...tab.entries].sort((a,b) => Number(b.directory)-Number(a.directory) || (pane.sort==='name'?a.name.localeCompare(b.name,'ko',{numeric:true}):(a[pane.sort]-b[pane.sort])) * (pane.desc?-1:1));
     // The renderer is deliberately bounded; the index retains the full supported search scope.
-    rows.innerHTML = sorted.slice(0,2000).map((entry,i) => `<div class="file-row ${tab.selected===entry.path?'selected':''}" role="option" aria-selected="${tab.selected===entry.path}" tabindex="0" data-row="${i}" title="${escapeHTML(entry.path)}"><span class="file-name"><span class="file-icon ${fileIcon(entry)}">${icon(fileIcon(entry))}</span><span>${escapeHTML(entry.name)}${entry.link?' ↗':''}</span></span><span class="file-date" title="${escapeHTML(tab.search?entry.parent:new Date(entry.modified).toLocaleString('ko-KR'))}">${escapeHTML(tab.search?entry.parent:dateLabel(entry.modified))}</span><span class="file-size">${sizeLabel(entry)}</span><span class="file-extra" title="${escapeHTML(typeLabel(entry))}">${escapeHTML(tab.search?dateLabel(entry.modified):typeLabel(entry))}</span></div>`).join('');
+    rows.innerHTML = sorted.slice(0,tab.limit||2000).map((entry,i) => `<div class="file-row ${selection(tab).has(entry.path)?'selected':''}" role="option" aria-selected="${selection(tab).has(entry.path)}" tabindex="0" data-row="${i}" title="${escapeHTML(entry.path)}"><span class="file-name"><span class="file-icon ${fileIcon(entry)}">${icon(fileIcon(entry))}</span><span>${escapeHTML(entry.name)}${entry.link?' ↗':''}</span></span><span class="file-date" title="${escapeHTML(tab.search?entry.parent:new Date(entry.modified).toLocaleString('ko-KR'))}">${escapeHTML(tab.search?entry.parent:dateLabel(entry.modified))}</span><span class="file-size">${sizeLabel(entry)}</span><span class="file-extra" title="${escapeHTML(typeLabel(entry))}">${escapeHTML(tab.search?dateLabel(entry.modified):typeLabel(entry))}</span></div>`).join('');
     decorateThumbnails(rows, sorted);
-    rows.querySelectorAll('[data-row]').forEach(row => {
-      const entry = sorted[Number(row.dataset.row)];
-      row.onclick = () => { tab.selected = entry.path; setActive(index); rows.querySelectorAll('.file-row').forEach(item => { const selected = item===row; item.classList.toggle('selected',selected); item.setAttribute('aria-selected',selected); }); element.querySelector('.selection-info').textContent = entry.name; };
-      row.ondblclick = () => openEntry(index, entry);
-      row.onkeydown = event => { if (event.key==='Enter') openEntry(index,entry); if (event.key==='ArrowDown') { event.preventDefault(); row.nextElementSibling?.focus(); } if (event.key==='ArrowUp') { event.preventDefault(); row.previousElementSibling?.focus(); } };
-      row.oncontextmenu = event => { event.preventDefault(); call(api.reveal(entry.path)).catch(error=>toast(error.message)); };
-    });
+    bindRows(index,rows,sorted);
+    if(sorted.length>(tab.limit||2000)){const more=document.createElement('button');more.className='load-more';more.textContent='다음 2,000개 표시';more.onclick=()=>{tab.limit=(tab.limit||2000)+2000;renderRows(index);};rows.append(more);}
   }
   element.querySelector('.item-count').textContent = tab.search ? `${(tab.total||0).toLocaleString()}개 검색 결과${tab.total>1000?' · 상위 1,000개 표시':''}` : `${tab.entries.length.toLocaleString()}개 항목${tab.entries.length>2000?' · 상위 2,000개 표시':''}`;
-  element.querySelector('.selection-info').textContent = tab.selected?basename(tab.selected):'';
+  updateSelection(index);
 }
 function makeTab(path) { return {path, entries:[], history:[path], cursor:0, loading:false, search:false, request:0}; }
 function editPath(index) { const pane=state.panes[index];if(tabOf(pane).search)return;const input=pane.element.querySelector('.path-input');pane.element.querySelector('.breadcrumbs').hidden=true;input.hidden=false;input.focus();input.select(); }
-async function navigate(index, path, history=true) {
+async function navigate(index, path, history=true, preserve=false) {
   const pane = state.panes[index], tab = tabOf(pane), previous = tab.path;
   tab.search = false;
   const request = ++tab.request;
@@ -155,18 +151,21 @@ async function navigate(index, path, history=true) {
   try {
     const data = await call(api.list(path));
     if (request !== tab.request) return;
-    tab.path = data.path; tab.parent = data.parent; tab.entries = data.entries; tab.selected = null;
+    tab.path = data.path; tab.parent = data.parent; tab.entries = data.entries;
+    if(preserve){const existing=new Set(data.entries.map(entry=>entry.path));tab.selection=new Set([...selection(tab)].filter(value=>existing.has(value)));}
+    else {tab.selected=null;tab.selection=new Set();tab.anchor=null;tab.limit=2000;}
     if (history && previous !== data.path) { tab.history = tab.history.slice(0,tab.cursor+1); tab.history.push(data.path); tab.cursor = tab.history.length-1; }
     save();
+    api.watch?.(state.panes.map(item=>tabOf(item).path));
   } catch (error) { if (request !== tab.request) return; tab.error = error.message; tab.entries = []; }
   tab.loading = false;
   if (tabOf(pane)===tab) renderPane(index);
 }
-async function load(index) { const tab=tabOf(state.panes[index]); if (tab.search) return runSearch(); return navigate(index,tab.path,false); }
+async function load(index,preserve=false) { const tab=tabOf(state.panes[index]); if (tab.search) return runSearch(); return navigate(index,tab.path,false,preserve); }
 function newTab(index) { const pane=state.panes[index]; if (pane.tabs.length>=20) return toast('패널당 최대 20개 탭을 사용할 수 있습니다.'); pane.tabs.push(makeTab(tabOf(pane).path)); pane.active=pane.tabs.length-1; setActive(index); renderPane(index); load(index); save(); }
 async function openEntry(index,entry) {
   if (entry.directory) { if (tabOf(state.panes[index]).search) { const target=state.layout>1?1:0; if (target===index) { newTab(index); } navigate(target,entry.path); setActive(target); } else navigate(index,entry.path); }
-  else if (tabOf(state.panes[index]).search) { const target=state.layout>1?1:0; if (target===index) newTab(index); await navigate(target,entry.parent); const tab=tabOf(state.panes[target]); tab.selected=entry.path; renderRows(target); setActive(target); }
+  else if (tabOf(state.panes[index]).search) { const target=state.layout>1?1:0; if (target===index) newTab(index); await navigate(target,entry.parent); const tab=tabOf(state.panes[target]); tab.selected=entry.path;tab.selection=new Set([entry.path]); renderRows(target); setActive(target); }
   else call(api.open(entry.path)).catch(error=>toast(error.message));
 }
 async function runSearch() {
@@ -176,7 +175,7 @@ async function runSearch() {
   const pane=state.panes[0];
   const tab=tabOf(pane); tab.search=true; tab.loading=true; tab.error=null; tab.request++;
   setActive(0); renderPane(0);
-  try { const result=await call(api.search(state.query,state.filter)); if(token!==state.request||tabOf(pane)!==tab||!tab.search)return; tab.entries=result.entries; tab.total=result.total; tab.loading=false; renderPane(0); }
+  try { const result=await call(api.search(state.query,state.filter)); if(token!==state.request||tabOf(pane)!==tab||!tab.search)return; tab.entries=result.entries;tab.selection=new Set([...selection(tab)].filter(value=>result.entries.some(entry=>entry.path===value)));tab.total=result.total; tab.loading=false; renderPane(0); }
   catch(error) { if(token!==state.request)return; tab.error=error.message; tab.loading=false; renderPane(0); }
 }
 function updateIndex(status) { $('#index-status').textContent = status.error?'검색 인덱스 오류':status.indexing?'파일 인덱싱 중…':status.limited?'인덱스 한도 도달 (25만 항목)':'인덱스 준비 완료'; $('#index-count').textContent=`${status.count.toLocaleString()}개 파일·폴더`; $('.status-dot').classList.toggle('busy',status.indexing); $('#index-status').title = status.error || `${status.skipped||0}개 폴더 접근 불가 · 최신 파일 반영은 새로고침 버튼 사용`; if(state.query) { clearTimeout(searchTimer); searchTimer=setTimeout(runSearch,150); } }
@@ -211,7 +210,7 @@ async function init() {
   $('#folder-dialog').addEventListener('close',async()=>{if($('#folder-dialog').returnValue!=='create')return;try{await call(api.mkdir($('#folder-parent').textContent,$('#folder-name').value));await load(state.active);toast('새 폴더를 만들었습니다.');}catch(error){toast(error.message);}});
   $('#folder-dialog button[value="cancel"]').formNoValidate=true;
   document.addEventListener('keydown',event=>{
-    if(event.ctrlKey&&event.key.toLowerCase()==='k'){event.preventDefault();$('#search').focus();$('#search').select();}
+    if(event.ctrlKey&&['k','f'].includes(event.key.toLowerCase())){event.preventDefault();$('#search').focus();$('#search').select();}
     if(event.ctrlKey&&event.key.toLowerCase()==='t'){event.preventDefault();newTab(state.active);}
     if(event.ctrlKey&&event.key.toLowerCase()==='l'){event.preventDefault();editPath(state.active);}
     if(event.key==='F5'){event.preventDefault();load(state.active);}
@@ -220,7 +219,8 @@ async function init() {
   applyLayout([1,2,4].includes(saved?.layout)?saved.layout:4);
   api.onIndex(updateIndex); updateIndex(boot.indexStatus);
   await Promise.all(state.panes.map((_pane,i)=>load(i)));
-  if(boot.preview){$('#search').value='프로젝트';await runSearch();const tab=tabOf(state.panes[0]);tab.selected=tab.entries.find(entry=>entry.name==='프로젝트 제안서.docx')?.path;renderRows(0);}
+  initFeatures(boot);
+  if(boot.preview){$('#search').value='프로젝트';await runSearch();const tab=tabOf(state.panes[0]);tab.selected=tab.entries.find(entry=>entry.name==='프로젝트 제안서.docx')?.path;tab.selection=new Set(tab.selected?[tab.selected]:[]);renderRows(0);}
   window.__quadfinderReady=true;
 }
 function driveSize(bytes){return bytes>=1024**4?`${(bytes/1024**4).toFixed(2)} TB`:`${Math.round(bytes/1024**3)} GB`;}

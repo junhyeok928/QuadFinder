@@ -160,3 +160,42 @@ dialog input { display: block; width: 100%; padding: 10px; border: 1px solid #45
 #sidebar-resizer:focus-visible { outline: none; }
 .resizing-sidebar, .resizing-sidebar * { cursor: col-resize !important; user-select: none !important; }
 #places button > span:not(.place-pin) { overflow: hidden; text-overflow: ellipsis; }
+.file-actions { display: flex; gap: 2px; margin-left: auto; }
+.file-actions button { padding: 3px 5px; font-size: 11px; color: #a1b5c9; white-space: nowrap; }
+.pane:not(.active) .file-actions button:not([data-file-action="menu"]) { display: none; }
+.file-row.cut .file-name { opacity: .45; }
+.pane.drop-target { outline: 2px solid #4cc7ed; outline-offset: -4px; }
+.load-more { display: block; padding: 12px; width: 100%; color: #8acde9; }
+#context-menu { position: fixed; z-index: 30; min-width: 245px; padding: 5px; border: 1px solid #3b4b5a; border-radius: 6px; background: #202a34; }
+#context-menu button { display: flex; width: 100%; padding: 8px 10px; justify-content: space-between; text-align: left; font-size: 12px; gap: 20px; }
+#context-menu button:hover, #context-menu button:focus-visible { background: #304456; }
+#context-menu kbd { font-size: 10px; color: #8ea1b5; }
+#operations-panel { position: fixed; right: 14px; bottom: 46px; width: 420px; max-height: min(70vh,650px); z-index: 20; border: 1px solid #3b4b5a; border-radius: 7px; background: #1c252e; display: flex; flex-direction: column; }
+#operations-panel > header { display: flex; align-items: center; gap: 8px; padding: 12px; border-bottom: 1px solid var(--line); }
+#operations-panel > header strong { margin-right: auto; }
+#operations-panel > header button { font-size: 11px; padding: 4px; color: #a6bacf; }
+#operations-panel > p { padding: 10px 12px; margin: 0; font-size: 11px; color: #8c9fb1; line-height: 1.6; border-top: 1px solid var(--line); }
+#job-list { overflow: auto; min-height: 60px; }
+.job { padding: 14px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.job > div { display: flex; justify-content: space-between; align-items: center; }
+.job strong { font-weight: 500; }
+.job button { padding: 4px 8px; color: #c0d2e4; background: #2c3b49; font-size: 11px; }
+.job progress { display: block; width: 100%; height: 6px; margin: 10px 0; accent-color: #37a8d0; }
+.job p { margin: 7px 0; color: #91a7bc; overflow-wrap: anywhere; }
+.job small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #91a7bc; }
+.job details { margin-top: 10px; font-size: 11px; color: #e2bca5; }
+.empty-jobs { padding: 24px; color: #9bb0c4; font-size: 12px; }
+.root-item { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.root-item > span { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12px; color: #b8cada; }
+.root-item button { padding: 5px 9px; color: #b9a8a3; font-size: 11px; flex-shrink: 0; }
+#roots-dialog { width: 560px; }
+#root-list { max-height: 45vh; overflow: auto; }
+.root-path-row { display: flex; gap: 8px; margin-top: 16px; }
+.root-path-row input { flex: 1; min-width: 0; padding: 9px; border: 1px solid #455970; background: #131b24; border-radius: 4px; font-size: 12px; }
+.root-path-row button { background: #2b3a48; padding: 6px 12px; font-size: 12px; }
+#custom-places { max-height: 25vh; overflow: auto; scrollbar-width: thin; }
+#custom-places button > span { overflow: hidden; text-overflow: ellipsis; }
+dl { font-size: 12px; }
+dt { color: #839bb1; margin-top: 13px; }
+dd { color: #c3d2e1; margin: 5px 0; overflow-wrap: anywhere; }
+@container (max-width: 575px) { .file-actions button:not([data-file-action="menu"]) { display: none; } }

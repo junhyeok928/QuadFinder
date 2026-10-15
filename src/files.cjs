@@ -10,7 +10,7 @@ function localPath(value) {
 
 async function listDirectory(value) {
   const directory = localPath(value);
-  const dirents = await fs.readdir(directory, { withFileTypes: true });
+  const dirents = (await fs.readdir(directory, { withFileTypes: true })).filter(item=>!item.name.startsWith('.quadfinder-'));
   const entries = [];
   // Bounded batches avoid flooding the filesystem with stat requests.
   for (let offset = 0; offset < dirents.length; offset += 32) {
@@ -31,8 +31,20 @@ function compareEntries(a, b) {
 }
 
 function matches(entry, query, filter = 'all') {
-  const words = query.normalize('NFC').toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
-  if (!words.every(word => entry.name.normalize('NFC').toLocaleLowerCase().includes(word))) return false;
+  const words = (query.normalize('NFC').toLocaleLowerCase().match(/(?:[^\s"]+|"[^"]*")+/g)||[]).map(word=>word.replace(/"/g,''));
+  const name=entry.name.normalize('NFC').toLocaleLowerCase();
+  if(!words.every(word=>{
+    if(word.startsWith('ext:'))return !entry.directory&&word.slice(4).split(/[;,|]/).some(ext=>name.endsWith('.'+ext.replace(/^\./,'')));
+    if(word.startsWith('path:'))return (entry.path||'').normalize('NFC').toLocaleLowerCase().includes(word.slice(5));
+    if(word.startsWith('size:')){
+      const match=word.slice(5).match(/^(>=|<=|>|<|=)?(\d+(?:\.\d+)?)(b|kb|mb|gb|tb)?$/);
+      if(!match||entry.directory)return false;
+      const amount=Number(match[2])*1024**({b:0,kb:1,mb:2,gb:3,tb:4}[match[3]||'b']);
+      return ({'>':entry.size>amount,'<':entry.size<amount,'>=':entry.size>=amount,'<=':entry.size<=amount,'=':entry.size===amount})[match[1]||'='];
+    }
+    if(/[?*]/.test(word)){const escaped=word.replace(/[.+^${}()|[\]\\]/g,'\\$&').replace(/\*/g,'.*').replace(/\?/g,'.');return new RegExp('^'+escaped+'$','u').test(name);}
+    return name.includes(word);
+  }))return false;
   if (filter === 'documents') return !entry.directory && /\.(pdf|docx?|xlsx?|pptx?|txt|md|csv|hwp|hwpx)$/i.test(entry.name);
   if (filter === 'images') return !entry.directory && /\.(png|jpe?g|gif|webp|svg|bmp|avif|heic)$/i.test(entry.name);
   if (filter === 'recent') return entry.modified >= Date.now() - 7 * 86400000;
