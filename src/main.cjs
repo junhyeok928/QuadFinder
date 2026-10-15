@@ -60,6 +60,7 @@ let refreshAll=false,watchedFolderKey='';
 const {key:pathKey}=require('./change-policy.cjs');
 const {indexable,networkPath}=require('./index-paths.cjs');
 let networkDrives=[];
+let automaticRoots=[];
 const indexExclusions=()=>[app.getPath('userData'),...networkDrives];
 const rootWatchers=[],folderWatchers=[];
 const stateFile = () => path.join(app.getPath('userData'), 'layout.json');
@@ -170,6 +171,12 @@ async function setup() {
   if(process.platform==='win32')networkDrives=await windowsShell.request({mode:'network-drives'});
   const removedRoots=roots.filter(root=>networkPath(root,networkDrives));
   roots=roots.filter(root=>!networkPath(root,networkDrives));
+  if(!smoke&&!designPreview&&process.platform==='win32'){
+    const candidates=await windowsShell.request({mode:'local-drives'});
+    for(const root of candidates)try{await fs.access(root);automaticRoots.push(root);}catch{}
+    // Saved folder scopes must never restrict automatic whole-PC search.
+    roots=require('./index-engine.cjs').targets([...automaticRoots,...roots]);
+  }
   if(removedRoots.length&&!smoke&&!designPreview){
     const navigation=normalizeNavigation(layout?.navigation);
     navigation.favorites=[...new Set([...navigation.favorites,...removedRoots])];
@@ -245,7 +252,7 @@ async function readDrives(){
   }
   handle('navigation:drives',readDrives);
   handle('bootstrap', async () => {const drives=await readDrives();
-    return { places, drives, roots, networkDrives, layout, zoomFactor, indexStatus, jobs:operations.snapshot(), undo:undo.snapshot(), updater:updater.snapshot(), version: app.getVersion(), smoke };
+    return { places, drives, roots, automaticRoots, networkDrives, layout, zoomFactor, indexStatus, jobs:operations.snapshot(), undo:undo.snapshot(), updater:updater.snapshot(), version: app.getVersion(), smoke };
   });
   handle('files:validate-folder',async value=>{const folder=localPath(value);if(!(await fs.stat(folder)).isDirectory())throw new Error('폴더 경로를 입력하세요.');return folder;});
   handle('files:folders',async value=>{const folder=localPath(value),items=await fs.readdir(folder,{withFileTypes:true});const entries=items.filter(item=>item.isDirectory()&&!item.isSymbolicLink()&&!item.name.startsWith('.quadfinder-')).map(item=>({name:item.name,path:path.join(folder,item.name),directory:true}));return (await enrich(entries)).filter(entry=>!entry.hidden).sort((a,b)=>a.name.localeCompare(b.name,'ko',{numeric:true}));});
@@ -318,12 +325,12 @@ async function readDrives(){
   handle('updater:check',()=>updater.check());
   handle('updater:install',()=>updater.install());
   handle('updater:releases',()=>shell.openExternal('https://github.com/junhyeok928/QuadFinder/releases'));
-  handle('roots:remove',async value=>{roots=roots.filter(root=>pathKey(root)!==pathKey(localPath(value)));await saveRoots();return roots;});
+  handle('roots:remove',async value=>{if(automaticRoots.some(root=>pathKey(root)===pathKey(localPath(value))))throw new Error('PC 전체 검색에 자동 포함된 드라이브입니다.');roots=roots.filter(root=>pathKey(root)!==pathKey(localPath(value)));await saveRoots();return roots;});
   handle('roots:add',async value=>{
     const root=localPath(value);
     if(networkPath(root,networkDrives))throw new Error('네트워크 폴더는 검색 인덱싱에서 제외됩니다. 즐겨찾기로 추가하면 폴더 탐색은 가능합니다.');
     if(!(await fs.stat(root)).isDirectory())throw new Error('검색할 폴더를 입력하세요.');
-    if(!roots.some(existing=>pathKey(existing)===pathKey(root))){roots.push(root);await saveRoots();}return roots;
+    if(!roots.some(existing=>require('./index-paths.cjs').within(root,existing))){roots.push(root);await saveRoots();}return roots;
   });
   handle('search', (query, filter) => {
     if (typeof query !== 'string' || query.length > 500 || !['all', 'documents', 'images', 'recent'].includes(filter)) throw new Error('잘못된 검색 조건입니다.');

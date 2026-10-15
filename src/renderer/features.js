@@ -127,8 +127,8 @@ async function flushRefresh(){
 function setRefreshFocus(focused){refreshFocused=focused;document.body.classList.toggle('app-unfocused',!focused);if(!focused){clearTimeout(refreshTimer);return;}scheduleSidebarRefresh();if(pendingRefreshAll||pendingRefreshPaths.size||pendingSearch)queueRefresh([]);}
 
 function renderRoots(roots){
-  state.boot.roots=roots;$('#scope-label').textContent=`${roots.length}개 검색 폴더`;
-  $('#root-list').innerHTML=roots.length?roots.map((root,i)=>`<div class="root-item"><span title="${escapeHTML(root)}">${escapeHTML(root)}</span><button data-remove-root="${i}" aria-label="${escapeHTML(root)} 검색 제외">제외</button></div>`).join(''):'<p>검색 폴더를 추가하세요.</p>';
+  state.boot.roots=roots;$('#scope-label').textContent=state.boot.automaticRoots?.length?`PC 전체 · ${state.boot.automaticRoots.length}개 드라이브`:`${roots.length}개 검색 폴더`;
+  $('#root-list').innerHTML=roots.length?roots.map((root,i)=>`<div class="root-item"><span title="${escapeHTML(root)}">${escapeHTML(root)}</span>${state.boot.automaticRoots?.some(value=>navKey(value)===navKey(root))?'<small>자동 검색</small>':`<button data-remove-root="${i}" aria-label="${escapeHTML(root)} 검색 제외">제외</button>`}</div>`).join(''):'<p>검색 폴더를 추가하세요.</p>';
   $('#root-list').querySelectorAll('button').forEach(button=>button.onclick=()=>call(api.removeRoot(roots[Number(button.dataset.removeRoot)])).then(renderRoots).catch(error=>toast(error.message)));
   renderSidebar();
 }
