@@ -36,7 +36,7 @@ if(process.argv.includes('--quadfinder-design-preview')) {
     ipcRenderer.on('index:status', handler);
     return () => ipcRenderer.removeListener('index:status', handler);
   },
-  onFilesChanged:callback=>{const handler=()=>callback();ipcRenderer.on('files:changed',handler);return ()=>ipcRenderer.removeListener('files:changed',handler);},
+  onFilesChanged:callback=>{const handler=(_event,paths)=>callback(paths);ipcRenderer.on('files:changed',handler);return ()=>ipcRenderer.removeListener('files:changed',handler);},
   onOperations:callback=>{const handler=(_event,data)=>callback(data);ipcRenderer.on('operations:changed',handler);return ()=>ipcRenderer.removeListener('operations:changed',handler);},
   onRoots:callback=>{const handler=(_event,data)=>callback(data);ipcRenderer.on('roots:changed',handler);return ()=>ipcRenderer.removeListener('roots:changed',handler);}
 }));

@@ -302,3 +302,5 @@ dd { color: #c3d2e1; margin: 5px 0; overflow-wrap: anywhere; }
 .column-option label { display:flex; align-items:center; gap:10px; flex:1; }
 .column-option button { width:28px; height:28px; border:1px solid #35414d; }
 #columns-dialog { width:430px; }
+
+.app-unfocused .status-dot.busy { animation:none; }

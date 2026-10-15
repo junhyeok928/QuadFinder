@@ -9,9 +9,15 @@ function tabOf(pane) { return pane.tabs[pane.active]; }
 function basename(path) { return path.replace(/[\\/]$/, '').split(/[\\/]/).pop() || path; }
 function tabLabel(path) { return state.boot?.places.find(place => place.path === path)?.label || basename(path); }
 function tabIcon(tab) { return tab.search ? 'search' : state.boot?.places.find(place => place.path === tab.path)?.icon === 'download' ? 'download' : 'folder-blue'; }
-function breadcrumbs(path) {
-  const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
-  return parts.map((part, index) => `${index ? icon('chevron') : ''}<button data-breadcrumb="${escapeHTML(parts.slice(0,index+1).join('\\')+'\\')}" title="${escapeHTML(part)}">${escapeHTML(part)}</button>`).join('');
+function breadcrumbs(value) {
+  const normalized=value.replace(/\\/g,'/'),network=normalized.startsWith('//'),parts=normalized.split('/').filter(Boolean);
+  const start=network?2:1,segments=[];
+  for(let count=start;count<=parts.length;count++){
+    const location=(network?'\\\\':'')+parts.slice(0,count).join('\\')+'\\';
+    const label=network&&count===2?'\\\\'+parts.slice(0,2).join('\\'):parts[count-1];
+    segments.push(`${segments.length?icon('chevron'):''}<button data-breadcrumb="${escapeHTML(location)}" title="${escapeHTML(location)}">${escapeHTML(label)}</button>`);
+  }
+  return segments.join('');
 }
 function fileIcon(entry) {
   if (entry.directory) return 'folder';
@@ -98,8 +104,14 @@ function setupSidebar(savedWidth) {
     save();
   });
 }
-function setActive(index) { state.active = index; document.querySelectorAll('.pane').forEach((element, i) => element.classList.toggle('active', i === index)); }
-function applyLayout(value) { state.layout = value; if (state.active >= value) state.active = 0; $('#panes').className = `panes layout-${value}`; document.querySelectorAll('[data-layout]').forEach(button => { const active = Number(button.dataset.layout) === value; button.classList.toggle('active', active); button.setAttribute('aria-pressed', active); }); state.panes.forEach((pane, i) => { pane.element.hidden = i >= value; }); setActive(state.active); save(); }
+function setActive(index) { state.active = index;syncSidebar(); document.querySelectorAll('.pane').forEach((element, i) => element.classList.toggle('active', i === index)); }
+function syncSidebar(){
+  const pane=state.panes[state.active];if(!pane)return;
+  const tab=tabOf(pane),current=ChangePolicy.key(tab.path),buttons=[...document.querySelectorAll('nav [data-location]')];
+  const selected=tab.search?null:buttons.filter(button=>{const key=ChangePolicy.key(button.dataset.location);return current===key||current.startsWith(key+'\\');}).sort((a,b)=>b.dataset.location.length-a.dataset.location.length)[0];
+  buttons.forEach(button=>{const active=button===selected;button.classList.toggle('active',active);if(active)button.setAttribute('aria-current','location');else button.removeAttribute('aria-current');});
+}
+function applyLayout(value) { state.layout = value; if (state.active >= value) state.active = 0; $('#panes').className = `panes layout-${value}`; document.querySelectorAll('[data-layout]').forEach(button => { const active = Number(button.dataset.layout) === value; button.classList.toggle('active', active); button.setAttribute('aria-pressed', active); }); state.panes.forEach((pane, i) => { pane.element.hidden = i >= value; }); setActive(state.active); save();if(window.__quadfinderReady)queueRefresh(state.panes.slice(0,value).map(pane=>tabOf(pane).path)); }
 
 function renderPane(index) {
   const pane = state.panes[index], tab = tabOf(pane), element = pane.element;
@@ -169,8 +181,36 @@ async function navigate(index, path, history=true, preserve=false) {
   } catch (error) { if (request !== tab.request) return; tab.error = error.message; tab.entries = []; }
   tab.loading = false;
   if (tabOf(pane)===tab) renderPane(index);
+  syncSidebar();
 }
-async function load(index,preserve=false) { const tab=tabOf(state.panes[index]); if (tab.search) return runSearch(); return navigate(index,tab.path,false,preserve); }
+async function refreshTab(index){
+  const pane=state.panes[index],tab=tabOf(pane);if(tab.loading||tab.refreshing||tab.search)return;
+  const request=++tab.request;tab.refreshing=true;
+  try{
+    const data=await call(api.list(tab.path));if(tab.request!==request||tabOf(pane)!==tab)return;
+    if(!refreshFocused){queueRefresh([tab.path]);return;}
+    const changed=!!tab.error||!ChangePolicy.sameEntries(tab.entries,data.entries,viewOf(tab).columns.some(column=>column.id==='accessed'));
+    tab.entries=data.entries;tab.parent=data.parent;tab.error=null;tab.refreshError=null;
+    if(!changed)return;
+    const existing=new Set(data.entries.map(entry=>entry.path));tab.selection=new Set([...selection(tab)].filter(value=>existing.has(value)));
+    const table=pane.element.querySelector('.file-table'),top=table.scrollTop,left=table.scrollLeft;
+    const focus=document.activeElement.closest?.('.file-row'),focusedPath=focus&&pane.element.contains(focus)?focus.title:null;
+    renderRows(index);bindViewFeatures(index);table.scrollTop=top;table.scrollLeft=left;
+    if(focusedPath)Array.from(table.querySelectorAll('.file-row')).find(row=>row.title===focusedPath)?.focus({preventScroll:true});
+  }catch(error){if(tab.request===request&&tab.refreshError!==error.message){tab.refreshError=error.message;toast(`폴더 갱신 실패: ${error.message}`);}}
+  finally{tab.refreshing=false;}
+}
+async function refreshSearch(){
+  const pane=state.panes[0],tab=tabOf(pane),query=state.query;if(!query||!tab.search||tab.loading)return;
+  const token=++state.request;
+  try{const result=await call(api.search(query,state.filter));if(token!==state.request||tabOf(pane)!==tab||!tab.search||$('#search').value.trim()!==query)return;
+    if(!refreshFocused){queueRefresh([]);return;}
+    const changed=result.total!==tab.total||!ChangePolicy.sameEntries(tab.entries,result.entries);tab.entries=result.entries;tab.total=result.total;
+    if(!changed)return;const existing=new Set(result.entries.map(entry=>entry.path));tab.selection=new Set([...selection(tab)].filter(value=>existing.has(value)));
+    const table=pane.element.querySelector('.file-table'),top=table.scrollTop,left=table.scrollLeft,focused=document.activeElement.closest?.('.file-row'),focusedPath=focused&&pane.element.contains(focused)?focused.title:null;renderRows(0);bindViewFeatures(0);table.scrollTop=top;table.scrollLeft=left;if(focusedPath)Array.from(table.querySelectorAll('.file-row')).find(row=>row.title===focusedPath)?.focus({preventScroll:true});
+  }catch(error){toast(`검색 갱신 실패: ${error.message}`);}
+}
+async function load(index,preserve=false) { const tab=tabOf(state.panes[index]);if(preserve)return refreshTab(index);if(tab.search)return runSearch();return navigate(index,tab.path,false); }
 function newTab(index) { const pane=state.panes[index]; if (pane.tabs.length>=20) return toast('패널당 최대 20개 탭을 사용할 수 있습니다.'); pane.tabs.push(makeTab(tabOf(pane).path,tabOf(pane).view)); pane.active=pane.tabs.length-1; setActive(index); renderPane(index); load(index); save(); }
 async function openEntry(index,entry) {
   if (entry.directory) { if (tabOf(state.panes[index]).search) { const target=state.layout>1?1:0; if (target===index) { newTab(index); } navigate(target,entry.path); setActive(target); } else navigate(index,entry.path); }
@@ -183,11 +223,11 @@ async function runSearch() {
   if (!state.query) { state.panes.forEach((pane,index)=>{ pane.tabs.forEach(tab=>tab.search=false); renderPane(index); load(index); }); return; }
   const pane=state.panes[0];
   const tab=tabOf(pane); tab.search=true; tab.loading=true; tab.error=null; tab.request++;
-  setActive(0); renderPane(0);
+  setActive(0); renderPane(0);syncSidebar();
   try { const result=await call(api.search(state.query,state.filter)); if(token!==state.request||tabOf(pane)!==tab||!tab.search)return; tab.entries=result.entries;tab.selection=new Set([...selection(tab)].filter(value=>result.entries.some(entry=>entry.path===value)));tab.total=result.total; tab.loading=false; renderPane(0); }
   catch(error) { if(token!==state.request)return; tab.error=error.message; tab.loading=false; renderPane(0); }
 }
-function updateIndex(status) { $('#index-status').textContent = status.error?'검색 인덱스 오류':status.indexing?'파일 인덱싱 중…':status.limited?'인덱스 한도 도달 (25만 항목)':'인덱스 준비 완료'; $('#index-count').textContent=`${status.count.toLocaleString()}개 파일·폴더`; $('.status-dot').classList.toggle('busy',status.indexing); $('#index-status').title = status.error || `${status.skipped||0}개 폴더 접근 불가 · 최신 파일 반영은 새로고침 버튼 사용`; if(state.query) { clearTimeout(searchTimer); searchTimer=setTimeout(runSearch,150); } }
+function updateIndex(status) { $('#index-status').textContent = status.error?'검색 인덱스 오류':status.indexing?'파일 인덱싱 중…':status.limited?'인덱스 한도 도달 (25만 항목)':'인덱스 준비 완료'; $('#index-count').textContent=`${status.count.toLocaleString()}개 파일·폴더`; $('.status-dot').classList.toggle('busy',status.indexing); $('#index-status').title = status.error || `${status.skipped||0}개 폴더 접근 불가 · 최신 파일 반영은 새로고침 버튼 사용`; if(state.query&&!status.indexing)queueRefresh([]); }
 
 async function init() {
   const boot=await call(api.bootstrap()); state.boot=boot;
@@ -205,9 +245,9 @@ async function init() {
     state.panes.push(pane); element.addEventListener('pointerdown',event=>{if(event.button<3)setActive(i);}); renderPane(i);
   }
   for(const [selector,items] of [['#places',boot.places.filter(place=>place.icon!=='image')],['#drives',boot.drives]]) {
-    $(selector).innerHTML=items.map((place,i)=>`<button data-place="${i}" class="${selector==='#drives'?'drive-button':''}" title="${escapeHTML(place.path)}">${icon(place.icon)}${selector==='#drives'?`<span class="drive-info"><span>${escapeHTML(place.label)}</span>${place.total?`<span class="drive-meter" role="meter" aria-label="${escapeHTML(place.label)} 사용량" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(100*place.used/place.total)}"><i class="drive-fill" data-percent="${Math.round(100*place.used/place.total)}"></i></span><small>${driveSize(place.used)} / ${driveSize(place.total)}</small>`:''}</span>`:`<span>${escapeHTML(place.label)}</span>${place.icon!=='home'?`<span class="place-pin">${icon('pin')}</span>`:''}`}</button>`).join('');
+    $(selector).innerHTML=items.map((place,i)=>`<button data-location="${escapeHTML(place.path)}" data-place="${i}" class="${selector==='#drives'?'drive-button':''}" title="${escapeHTML(place.path)}">${icon(place.icon)}${selector==='#drives'?`<span class="drive-info"><span>${escapeHTML(place.label)}</span>${place.total?`<span class="drive-meter" role="meter" aria-label="${escapeHTML(place.label)} 사용량" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(100*place.used/place.total)}"><i class="drive-fill" data-percent="${Math.round(100*place.used/place.total)}"></i></span><small>${driveSize(place.used)} / ${driveSize(place.total)}</small>`:''}</span>`:`<span>${escapeHTML(place.label)}</span>${place.icon!=='home'?`<span class="place-pin">${icon('pin')}</span>`:''}`}</button>`).join('');
     $(selector).querySelectorAll('.drive-fill').forEach(bar=>bar.style.width=`${bar.dataset.percent}%`);
-    $(selector).querySelectorAll('button').forEach(button=>button.onclick=()=>{ navigate(state.active,items[Number(button.dataset.place)].path); document.querySelectorAll('nav button').forEach(item=>item.classList.toggle('active',item===button)); });
+    $(selector).querySelectorAll('button').forEach(button=>button.onclick=()=>{ navigate(state.active,items[Number(button.dataset.place)].path); });
   }
   $('#choose-folder').onclick=async()=>{try{const path=await call(api.chooseFolder());if(path){navigate(state.active,path);$('#scope-label').textContent='즐겨찾기 + 추가한 폴더에서 검색';}}catch(error){toast(error.message);}};
   document.querySelectorAll('[data-window]').forEach(button=>button.onclick=()=>call(api.windowAction(button.dataset.window)).catch(error=>toast(error.message)));

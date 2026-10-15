@@ -1,6 +1,8 @@
 // File interactions share the existing explorer state; filesystem access stays in main.
 let fileClipboard=null,draggedPaths=null,renameSource=null,refreshTimer=null;
 let currentJobs=[];
+let refreshFocused=true,pendingRefreshAll=false,pendingSearch=false,refreshRunning=false;
+const pendingRefreshPaths=new Set();
 const terminalJobs=new Set();
 const activeJob=job=>['queued','scanning','running'].includes(job.status);
 function selection(tab){if(!(tab.selection instanceof Set))tab.selection=new Set(tab.selected?[tab.selected]:[]);return tab.selection;}
@@ -107,14 +109,31 @@ function renderJobs(jobs){
   $('#job-list').querySelectorAll('[data-cancel]').forEach(button=>button.onclick=()=>call(api.cancelOperation(button.dataset.cancel)).catch(error=>toast(error.message)));
   for(const job of jobs)if(!activeJob(job)&&!terminalJobs.has(job.id)){terminalJobs.add(job.id);queueRefresh();toast(`${labels[job.kind]} ${statuses[job.status]} · ${job.done}개 완료${job.errors.length?' · 작업 창에서 오류를 확인하세요.':''}`);}
 }
-function queueRefresh(){clearTimeout(refreshTimer);refreshTimer=setTimeout(async()=>{if(document.querySelector('dialog[open],.path-input:not([hidden]):focus')||currentJobs.some(activeJob)){queueRefresh();return;}await Promise.all(state.panes.map((_pane,i)=>tabOf(state.panes[i]).search?Promise.resolve():load(i,true)));if(state.query)runSearch();},250);}
+function queueRefresh(paths=null){
+  if(Array.isArray(paths))paths.forEach(value=>pendingRefreshPaths.add(value));else pendingRefreshAll=true;
+  if(pendingRefreshPaths.size>4096){pendingRefreshPaths.clear();pendingRefreshAll=true;}
+  pendingSearch=!!state.query;
+  clearTimeout(refreshTimer);if(!refreshFocused)return;
+  refreshTimer=setTimeout(flushRefresh,250);
+}
+async function flushRefresh(){
+  if(!refreshFocused)return;
+  if(refreshRunning||document.querySelector('dialog[open],.path-input:not([hidden]):focus,#context-menu:not([hidden])')||currentJobs.some(activeJob)||state.panes.some((pane,i)=>i<state.layout&&tabOf(pane).loading)){refreshTimer=setTimeout(flushRefresh,250);return;}
+  const paths=pendingRefreshAll?null:[...pendingRefreshPaths],search=pendingSearch;
+  pendingRefreshAll=false;pendingRefreshPaths.clear();pendingSearch=false;refreshRunning=true;
+  try{await Promise.all(state.panes.map((pane,i)=>i<state.layout&&!tabOf(pane).search&&ChangePolicy.affects(tabOf(pane).path,paths)?refreshTab(i):Promise.resolve()));if(search&&refreshFocused)await refreshSearch();}
+  finally{refreshRunning=false;if(pendingRefreshAll||pendingRefreshPaths.size||pendingSearch)queueRefresh([]);}
+}
+function setRefreshFocus(focused){refreshFocused=focused;document.body.classList.toggle('app-unfocused',!focused);if(!focused){clearTimeout(refreshTimer);return;}if(pendingRefreshAll||pendingRefreshPaths.size||pendingSearch)queueRefresh([]);}
+
 function renderRoots(roots){
   state.boot.roots=roots;$('#scope-label').textContent=`${roots.length}개 검색 폴더`;
   $('#root-list').innerHTML=roots.length?roots.map((root,i)=>`<div class="root-item"><span title="${escapeHTML(root)}">${escapeHTML(root)}</span><button data-remove-root="${i}" aria-label="${escapeHTML(root)} 검색 제외">제외</button></div>`).join(''):'<p>검색 폴더를 추가하세요.</p>';
   $('#root-list').querySelectorAll('button').forEach(button=>button.onclick=()=>call(api.removeRoot(roots[Number(button.dataset.removeRoot)])).then(renderRoots).catch(error=>toast(error.message)));
   const custom=roots.filter(root=>!state.boot.places.some(place=>place.path.toLowerCase()===root.toLowerCase()));
-  $('#custom-places').innerHTML=custom.map((root,i)=>`<button data-root-nav="${i}" title="${escapeHTML(root)}">${icon('folder-blue')}<span>${escapeHTML(basename(root))}</span></button>`).join('');
+  $('#custom-places').innerHTML=custom.map((root,i)=>`<button data-location="${escapeHTML(root)}" data-root-nav="${i}" title="${escapeHTML(root)}">${icon('folder-blue')}<span>${escapeHTML(basename(root))}</span></button>`).join('');
   $('#custom-places').querySelectorAll('button').forEach(button=>button.onclick=()=>navigate(state.active,custom[Number(button.dataset.rootNav)]));
+  syncSidebar();
 }
 function initFeatures(boot){
   const updateZoom=factor=>{$('#zoom-reset').textContent=`${Math.round(factor*100)}%`;};
@@ -142,7 +161,9 @@ function initFeatures(boot){
   $('#show-operations').onclick=()=>$('#operations-panel').hidden=!$('#operations-panel').hidden;
   $('#close-jobs').onclick=()=>$('#operations-panel').hidden=true;
   $('#clear-jobs').onclick=()=>api.clearOperations?call(api.clearOperations()).catch(error=>toast(error.message)):renderJobs([]);
-  window.addEventListener('focus',()=>{if(api.readClipboard)call(api.readClipboard()).then(data=>{fileClipboard=data.paths.length?data:null;state.panes.forEach((_,i)=>updateSelection(i));}).catch(()=>{});});
+  setRefreshFocus(boot.smoke||document.hasFocus());
+  window.addEventListener('blur',()=>setRefreshFocus(false));
+  window.addEventListener('focus',()=>{setRefreshFocus(true);queueRefresh(state.panes.slice(0,state.layout).map(pane=>tabOf(pane).path));if(api.readClipboard)call(api.readClipboard()).then(data=>{fileClipboard=data.paths.length?data:null;state.panes.forEach((_,i)=>updateSelection(i));}).catch(()=>{});});
   api.onOperations?.(renderJobs);api.onFilesChanged?.(queueRefresh);api.onRoots?.(renderRoots);renderJobs(boot.jobs||[]);renderRoots(boot.roots);
   document.addEventListener('pointerdown',event=>{if(!event.target.closest('#context-menu'))$('#context-menu').hidden=true;});
   document.addEventListener('keydown',event=>{

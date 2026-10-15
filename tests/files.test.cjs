@@ -14,8 +14,9 @@ test('filename search supports multiple words, case, Korean normalization and fi
   const entry={name:'프로젝트 REPORT.pdf',directory:false,modified:Date.now()};
   assert(matches(entry,'REPORT 프로젝트','documents'));assert(!matches(entry,'REPORT','images'));assert(matches(entry,'REPORT','recent'));assert(!matches({...entry,modified:0},'REPORT','recent'));assert(matches({...entry,name:'한글.txt'},'한글'.normalize('NFD')));
 });
-test('local path and Windows names reject network paths, traversal and reserved names',()=>{
-  for(const value of ['relative','\\\\server\\share','//server/share','C:\\bad\0'])assert.throws(()=>localPath(value));
+test('paths accept shares and reject malformed UNC, device paths and invalid names',()=>{
+  for(const value of ['relative','\\\\server','\\\\?\\C:\\file','\\\\.\\pipe\\name','C:\\bad\0'])assert.throws(()=>localPath(value));
+  if(process.platform==='win32'){assert.equal(localPath('\\\\server\\share'),'\\\\server\\share\\');assert.equal(localPath('//server/share/folder'),'\\\\server\\share\\folder');assert.throws(()=>localPath('\\relative'));}
   for(const name of ['..','../bad','a/b','CON','com1.txt','name.','name ','bad:name',''])assert.throws(()=>childPath(process.cwd(),name));
 });
 test('search supports wildcard, quoted phrase, extension, path and size terms',()=>{

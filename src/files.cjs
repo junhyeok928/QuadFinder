@@ -2,8 +2,15 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 function localPath(value) {
-  if (typeof value !== 'string' || !path.isAbsolute(value) || value.includes('\0') || /^(\\\\|\/\/)/.test(value)) {
-    throw new Error('올바른 로컬 절대 경로를 입력하세요.');
+  if (typeof value !== 'string' || !path.isAbsolute(value) || /[\x00-\x1f]/.test(value)) {
+    throw new Error('드라이브 절대 경로 또는 \\\\서버\\공유폴더 경로를 입력하세요.');
+  }
+  if(process.platform==='win32'){
+    const windows=value.replace(/\//g,'\\');
+    if(windows.startsWith('\\\\')){
+      const parts=windows.slice(2).split('\\');
+      if(parts.length<2||parts.slice(0,2).some(part=>!part||part==='.'||part==='..'||/[<>:"|?*]/.test(part)))throw new Error('네트워크 경로는 \\\\서버\\공유폴더 형식으로 입력하세요.');
+    }else if(!/^[a-z]:\\/i.test(windows))throw new Error('드라이브 문자가 포함된 절대 경로를 입력하세요.');
   }
   return path.normalize(value);
 }
