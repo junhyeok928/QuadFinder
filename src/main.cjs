@@ -1,0 +1,160 @@
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session } = require('electron');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const { Worker } = require('node:worker_threads');
+const { localPath, listDirectory, createFolder } = require('./files.cjs');
+protocol.registerSchemesAsPrivileged([{ scheme: 'quadfinder', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+const smoke = process.argv.includes('--smoke-test');
+if (smoke) app.setPath('userData', path.join(app.getAppPath(), 'output', 'smoke-profile'));
+let window;
+let worker;
+let searchId = 0;
+let indexStatus = { indexing: false, count: 0, skipped: 0, limited: false };
+const pending = new Map();
+let roots = [];
+let places = [];
+let layout;
+let saveQueue = Promise.resolve();
+const stateFile = () => path.join(app.getPath('userData'), 'layout.json');
+
+function startIndex() {
+  if (worker) worker.terminate();
+  for (const { resolve } of pending.values()) resolve({ entries: [], total: 0, indexing: true });
+  pending.clear();
+  indexStatus = { indexing: true, count: 0, skipped: 0, limited: false };
+  worker = new Worker(path.join(__dirname, 'index-worker.cjs'), { workerData: { roots } });
+  worker.on('message', message => {
+    if (message.type === 'results') {
+      pending.get(message.id)?.resolve(message);
+      pending.delete(message.id);
+    } else {
+      indexStatus = message.type === 'error' ? { ...indexStatus, indexing: false, error: message.message } : message;
+      if (!window.isDestroyed()) window.webContents.send('index:status', indexStatus);
+    }
+  });
+  worker.on('error', error => {
+    indexStatus = { ...indexStatus, indexing: false, error: error.message };
+    if (!window.isDestroyed()) window.webContents.send('index:status', indexStatus);
+    for (const { reject } of pending.values()) reject(error);
+    pending.clear();
+  });
+}
+
+function handle(channel, callback) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !event.senderFrame.url.startsWith('quadfinder://app/')) throw new Error('허용되지 않은 요청입니다.');
+    try { return { ok: true, value: await callback(...args) }; }
+    catch (error) { return { ok: false, error: error.message }; }
+  });
+}
+
+async function setup() {
+  for (const [key, label, icon] of [['home', '홈', 'home'], ['desktop', '바탕 화면', 'desktop'], ['downloads', '다운로드', 'download'], ['documents', '문서', 'document'], ['pictures', '사진', 'image']]) {
+    try { const directory = app.getPath(key); if ((await fs.stat(directory)).isDirectory()) places.push({ label, path: directory, icon }); } catch { /* Missing known folders are not displayed. */ }
+  }
+  roots = [...new Set(places.filter(item => item.icon !== 'home').map(item => item.path))];
+  if (smoke) {
+    const fixtures = path.join(app.getAppPath(), 'tests', 'fixtures');
+    roots = [fixtures];
+    places = [{label:'테스트 자료', path:fixtures, icon:'home'}];
+  }
+  try { layout = JSON.parse(await fs.readFile(stateFile(), 'utf8')); } catch { layout = null; }
+  protocol.handle('quadfinder', request => {
+    const url = new URL(request.url);
+    const assets = new Set(['index.html', 'styles.css', 'renderer.js', 'icons.js', 'preview.js']);
+    const file = url.pathname.slice(1) || 'index.html';
+    if (url.hostname !== 'app' || !assets.has(file)) return new Response('Not found', { status: 404 });
+    return net.fetch(pathToFileURL(path.join(__dirname, 'renderer', file)).href);
+  });
+  window = new BrowserWindow({ width: 1520, height: 980, minWidth: 1000, minHeight: 680, show: !smoke,
+    backgroundColor: '#14181e', title: 'QuadFinder', frame: false,
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', event => event.preventDefault());
+  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  handle('bootstrap', async () => {
+    const drives = [];
+    if (process.platform === 'win32') for (let code = 65; code <= 90; code++) {
+      const root = String.fromCharCode(code) + ':\\';
+      try { await fs.access(root); drives.push({ label: `로컬 디스크 (${root.slice(0, 2)})`, path: root, icon: 'drive' }); } catch { /* Not mounted. */ }
+    }
+    return { places, drives, roots, layout, indexStatus, version: app.getVersion(), smoke };
+  });
+  handle('files:list', listDirectory);
+  handle('files:choose', async () => {
+    const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
+    if (result.canceled) return null;
+    const directory = localPath(result.filePaths[0]);
+    if (!roots.includes(directory)) { roots.push(directory); startIndex(); }
+    return directory;
+  });
+  handle('files:open', async value => {
+    const file = localPath(value);
+    await fs.access(file);
+    const { response } = await dialog.showMessageBox(window, { type: 'question', buttons: ['취소', '열기'], defaultId: 0, cancelId: 0,
+      message: '기본 앱에서 파일을 여시겠습니까?', detail: file });
+    if (response !== 1) return false;
+    const error = await shell.openPath(file);
+    if (error) throw new Error(error);
+    return true;
+  });
+  handle('files:reveal', async value => { const file = localPath(value); await fs.access(file); shell.showItemInFolder(file); });
+  handle('files:mkdir', createFolder);
+  handle('search', (query, filter) => {
+    if (typeof query !== 'string' || query.length > 500 || !['all', 'documents', 'images', 'recent'].includes(filter)) throw new Error('잘못된 검색 조건입니다.');
+    return new Promise((resolve, reject) => { const id = ++searchId; pending.set(id, { resolve, reject }); worker.postMessage({ id, query, filter }); });
+  });
+  handle('index:rebuild', () => { startIndex(); return roots; });
+  handle('layout:save', async value => {
+    if (!value || ![1, 2, 4].includes(value.layout) || !Array.isArray(value.panes) || value.panes.length !== 4) throw new Error('잘못된 레이아웃입니다.');
+    const clean = { layout: value.layout, panes: value.panes.map(pane => {
+      if (!Array.isArray(pane.tabs) || pane.tabs.length < 1 || pane.tabs.length > 20) throw new Error('탭 개수를 확인하세요.');
+      return { active: Math.max(0, Math.min(pane.tabs.length - 1, Number(pane.active) || 0)), tabs: pane.tabs.map(tab => ({ path: localPath(tab.path) })) };
+    }) };
+    saveQueue = saveQueue.catch(() => {}).then(async () => {
+      await fs.mkdir(app.getPath('userData'), { recursive: true });
+      await fs.writeFile(stateFile() + '.tmp', JSON.stringify(clean, null, 2));
+      await fs.rename(stateFile() + '.tmp', stateFile());
+    });
+    await saveQueue;
+  });
+  handle('window:action', action => {
+    if (action === 'minimize') window.minimize();
+    if (action === 'maximize') window.isMaximized() ? window.unmaximize() : window.maximize();
+    if (action === 'close') window.close();
+  });
+  startIndex();
+  await window.loadURL('quadfinder://app/index.html');
+  if (smoke) {
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline && !(await window.webContents.executeJavaScript('window.__quadfinderReady === true'))) await new Promise(resolve => setTimeout(resolve, 100));
+    const result = await window.webContents.executeJavaScript(`(async () => {
+      const waitFor = async predicate => { const deadline = Date.now()+10000; while(!predicate()){if(Date.now()>deadline)throw new Error('UI wait timeout');await new Promise(resolve=>setTimeout(resolve,50));} };
+      const initialRows=document.querySelectorAll('.file-row').length;
+      document.querySelector('[data-layout="2"]').click();
+      const twoPane=document.querySelectorAll('.pane:not([hidden])').length===2;
+      document.querySelector('[data-layout="4"]').click();
+      document.querySelector('.new-tab').click();
+      await waitFor(()=>document.querySelectorAll('.pane:first-child .tab').length===2 && document.querySelectorAll('.pane:first-child .file-row').length>0);
+      document.querySelector('.pane:first-child [data-close="1"]').click();
+      const search=document.querySelector('#search');search.value='프로젝트';search.dispatchEvent(new Event('input'));
+      await waitFor(()=>document.querySelector('.pane:first-child .tab.current').textContent.includes('검색 결과') && document.querySelectorAll('.pane:first-child .file-row').length===1);
+      const searchWorks=document.querySelector('.pane:first-child .file-row').textContent.includes('프로젝트 안내.md');
+      document.querySelector('[data-filter="images"]').click();
+      await waitFor(()=>document.querySelector('.pane:first-child .empty-state strong')?.textContent==='검색 결과가 없습니다');
+      const filterWorks=true;
+      document.querySelector('#clear-search').click();
+      await waitFor(()=>document.querySelectorAll('.pane:first-child .file-row').length===1 && !document.querySelector('.pane:first-child .tab.current').textContent.includes('검색 결과'));
+      return {ready:window.__quadfinderReady===true,panes:document.querySelectorAll('.pane').length,rows:initialRows,twoPane,searchWorks,filterWorks,title:document.title};
+    })()`);
+    await fs.mkdir(path.join(app.getAppPath(), 'output'), { recursive: true });
+    await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.png'), (await window.webContents.capturePage()).toPNG());
+    await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.json'), JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(result));
+    app.exit(result.ready && result.panes === 4 && result.rows > 0 && result.twoPane && result.searchWorks && result.filterWorks ? 0 : 1);
+  }
+}
+app.whenReady().then(setup).catch(error => { console.error(error); app.exit(1); });
+app.on('window-all-closed', () => app.quit());
+app.on('before-quit', () => worker?.terminate());

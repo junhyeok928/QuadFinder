@@ -1,0 +1,5 @@
+const http=require('node:http');
+const fs=require('node:fs/promises');
+const path=require('node:path');
+const files=new Set(['index.html','styles.css','renderer.js','icons.js','preview.js']);
+http.createServer(async(req,res)=>{const name=new URL(req.url,'http://localhost').pathname.slice(1)||'index.html';if(!files.has(name)){res.writeHead(404);return res.end();}try{res.setHeader('Content-Type',name.endsWith('.css')?'text/css':name.endsWith('.js')?'text/javascript':'text/html; charset=utf-8');res.end(await fs.readFile(path.join(__dirname,'../src/renderer',name)));}catch{res.writeHead(500);res.end();}}).listen(4173,'127.0.0.1',()=>console.log('Design preview: http://127.0.0.1:4173 (sample data only)'));

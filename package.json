@@ -1,0 +1,22 @@
+{
+  "name": "quadfinder",
+  "productName": "QuadFinder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "빠른 파일 검색과 다중 패널 탐색을 결합한 Windows 파일 관리자",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.cjs",
+    "preview": "node scripts/preview.cjs",
+    "smoke": "electron . --smoke-test",
+    "package": "node scripts/package.cjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.7.1"
+  }
+}

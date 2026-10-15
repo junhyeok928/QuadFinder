@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'">
+  <title>QuadFinder</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="icons.js" defer></script>
+  <script src="preview.js" defer></script>
+  <script src="renderer.js" defer></script>
+</head>
+<body>
+  <header class="titlebar">
+    <div class="brand"><span data-icon="logo"></span><strong>QuadFinder</strong><span class="version">PREVIEW 0.1</span></div>
+    <span class="title-caption">검색에서 정리까지, 한 화면에서</span>
+    <div class="window-controls"><button data-window="minimize" aria-label="최소화">─</button><button data-window="maximize" aria-label="최대화">□</button><button data-window="close" aria-label="닫기">×</button></div>
+  </header>
+  <main class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-caption">WORKSPACE</div>
+      <button class="workspace-button" id="home"><span data-icon="logo"></span><span>내 작업 공간<small>LOCAL WORKSPACE</small></span></button>
+      <div class="sidebar-heading">즐겨찾기 <span>⌃</span></div>
+      <nav id="places" aria-label="즐겨찾기"></nav>
+      <div class="sidebar-heading drives-heading">내 PC <span>⌃</span></div>
+      <nav id="drives" aria-label="드라이브"></nav>
+      <button id="choose-folder" class="add-location"><span data-icon="plus"></span>폴더 추가</button>
+      <div class="sidebar-bottom"><span data-icon="shield"></span><div>내 파일은 내 컴퓨터에<small>파일 목록을 외부로 보내지 않습니다</small></div></div>
+    </aside>
+    <section class="workspace">
+      <div class="search-toolbar">
+        <label class="search-box"><span data-icon="search"></span><input id="search" aria-label="파일명 검색" placeholder="파일 이름으로 검색하세요" autocomplete="off" spellcheck="false"><button id="clear-search" aria-label="검색어 지우기">×</button><kbd>Ctrl K</kbd></label>
+        <div class="layout-switch" role="group" aria-label="패널 배치"><button data-layout="1" title="1분할" aria-label="1분할"><span data-icon="layout1"></span></button><button data-layout="2" title="2분할" aria-label="2분할"><span data-icon="layout2"></span></button><button data-layout="4" class="active" title="4분할" aria-label="4분할"><span data-icon="layout4"></span></button></div>
+      </div>
+      <div class="filter-toolbar"><div id="filters" role="group" aria-label="검색 필터"><button data-filter="all" class="active">전체</button><button data-filter="documents"><span data-icon="document"></span>문서</button><button data-filter="images"><span data-icon="image"></span>이미지</button><button data-filter="recent"><span data-icon="clock"></span>최근 7일</button></div><span id="scope-label">즐겨찾기 폴더에서 검색</span><button id="reindex" title="검색 인덱스 새로고침"><span data-icon="refresh"></span></button></div>
+      <div id="panes" class="panes layout-4" aria-label="파일 탐색 패널"></div>
+      <div class="shortcut-bar"><span><kbd>Ctrl K</kbd> 검색</span><span><kbd>Ctrl T</kbd> 새 탭</span><span><kbd>Alt ↑</kbd> 상위 폴더</span><span><kbd>F5</kbd> 새로고침</span><span class="preview-label" id="preview-label">로컬 파일 탐색</span></div>
+    </section>
+  </main>
+  <footer class="statusbar"><span class="status-dot"></span><span id="index-status">검색 준비 중</span><span class="status-divider"></span><span id="index-count">0개 파일</span><span id="status-message"></span><span class="status-right">QuadFinder <span>v0.1.0</span></span></footer>
+  <dialog id="folder-dialog"><form method="dialog"><h2>새 폴더 만들기</h2><p id="folder-parent"></p><label>폴더 이름<input id="folder-name" required maxlength="200" autocomplete="off"></label><div class="dialog-actions"><button value="cancel">취소</button><button id="create-folder" value="create" class="primary">만들기</button></div></form></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

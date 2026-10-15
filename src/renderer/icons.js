@@ -1,0 +1,30 @@
+const paths = {
+  logo: '<rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/>',
+  search:'<circle cx="10.8" cy="10.8" r="7.2"/><path d="m16 16 5 5"/>',
+  home:'<path d="m3 10 9-7 9 7v10H4V10M9 20v-7h6v7"/>',
+  desktop:'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/>',
+  download:'<path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/>',
+  document:'<path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6m-6 4h6"/>',
+  image:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/>',
+  drive:'<path d="m5 5-3 12v4h20v-4L19 5zM2 17h20m-5 2h2"/>',
+  folder:'<path d="M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  left:'<path d="m14 5-7 7 7 7M7 12h14"/>',
+  right:'<path d="m10 5 7 7-7 7M3 12h14"/>',
+  up:'<path d="m5 12 7-7 7 7M12 5v16"/>',
+  refresh:'<path d="M20 10a8 8 0 1 0-1 8M20 3v7h-7"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
+  layout1:'<rect x="3" y="4" width="18" height="16" rx="2"/>',
+  layout2:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/>',
+  layout4:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16M3 12h18"/>',
+  shield:'<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM8 12l3 3 5-6"/>',
+  external:'<path d="M14 3h7v7m0-7L10 14M10 4H4v16h16v-6"/>',
+  file:'<path d="M6 3h8l4 4v14H6zM14 3v5h4"/>',
+  code:'<path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 20"/>',
+  archive:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M10 3v10h4V3m-4 13h4v3h-4z"/>',
+  video:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 8 6 4-6 4z"/>',
+  music:'<path d="M9 18V5l12-2v13M9 8l12-2"/><ellipse cx="6" cy="18" rx="3" ry="3"/><ellipse cx="18" cy="16" rx="3" ry="3"/>',
+  chevron:'<path d="m9 5 7 7-7 7"/>'
+};
+window.icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.file}</svg>`;
+document.querySelectorAll('[data-icon]').forEach(element => { element.innerHTML = window.icon(element.dataset.icon); });
