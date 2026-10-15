@@ -42,7 +42,7 @@ class ShellBridge : Form {
       }
       menu2=menu as IContextMenu2;menu3=menu as IContextMenu3;
       popup=CreatePopupMenu();Marshal.ThrowExceptionForHR(menu.QueryContextMenu(popup,0,1,0x6fff,0x4|0x10|0x100));
-      if((string)input["mode"]=="probe")return new {count=GetMenuItemCount(popup),labels=Labels(popup)};
+      if((string)input["mode"]=="probe")return new {count=GetMenuItemCount(popup),labels=Labels(popup),verbs=Verbs(popup)};
       string verb=input.ContainsKey("verb")?(string)input["verb"]:null;uint command=0;
       if(verb==null){
         ShowInTaskbar=false;FormBorderStyle=FormBorderStyle.None;Opacity=0;Width=1;Height=1;StartPosition=FormStartPosition.Manual;
@@ -71,6 +71,8 @@ class ShellBridge : Form {
   }
   bool HasVisibleOwnedWindow(){bool found=false;uint current=(uint)System.Diagnostics.Process.GetCurrentProcess().Id;EnumWindows(delegate(IntPtr h,IntPtr p){uint owner;GetWindowThreadProcessId(h,out owner);if(owner==current&&h!=Handle&&IsWindowVisible(h))found=true;return true;},IntPtr.Zero);return found;}
   static string[] Labels(IntPtr popup){var labels=new List<string>();for(int i=0;i<GetMenuItemCount(popup);i++){var text=new StringBuilder(512);GetMenuString(popup,(uint)i,text,512,0x400);if(text.Length>0)labels.Add(text.ToString());}return labels.ToArray();}
+  // Canonical verbs do not depend on UI language or ampersand accelerator markers.
+  string[] Verbs(IntPtr popup){var verbs=new List<string>();for(int i=0;i<GetMenuItemCount(popup);i++){uint id=GetMenuItemID(popup,i);if(id<1||id>0x6fff)continue;var text=new StringBuilder(512);if(menu.GetCommandString(new UIntPtr(id-1),0,IntPtr.Zero,text,512)==0&&text.Length>0)verbs.Add(text.ToString().ToLowerInvariant());}return verbs.Distinct().ToArray();}
   protected override void WndProc(ref Message m){
     if(menu!=null&&(m.Msg==0x117||m.Msg==0x2b||m.Msg==0x2c||m.Msg==0x120)){
       IntPtr result;if(menu3!=null&&menu3.HandleMenuMsg2((uint)m.Msg,m.WParam,m.LParam,out result)==0){m.Result=result;return;}
@@ -101,6 +103,7 @@ class ShellBridge : Form {
   [DllImport("user32.dll")]static extern IntPtr CreatePopupMenu();[DllImport("user32.dll")]static extern bool DestroyMenu(IntPtr menu);
   [DllImport("user32.dll")]static extern uint TrackPopupMenuEx(IntPtr menu,uint flags,int x,int y,IntPtr owner,IntPtr param);
   [DllImport("user32.dll")]static extern bool SetForegroundWindow(IntPtr window);[DllImport("user32.dll")]static extern int GetMenuItemCount(IntPtr menu);
+  [DllImport("user32.dll")]static extern uint GetMenuItemID(IntPtr menu,int position);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)]static extern int GetMenuString(IntPtr menu,uint item,StringBuilder text,int max,uint flags);
   delegate bool EnumWindow(IntPtr window,IntPtr param);[DllImport("user32.dll")]static extern bool PostMessage(IntPtr window,uint msg,IntPtr w,IntPtr l);
   [DllImport("user32.dll")]static extern bool EnumWindows(EnumWindow callback,IntPtr param);[DllImport("user32.dll")]static extern uint GetWindowThreadProcessId(IntPtr window,out uint process);[DllImport("user32.dll")]static extern bool IsWindowVisible(IntPtr window);
