@@ -14,10 +14,10 @@ using System.Windows.Threading;
 using Microsoft.Win32;
 class SetupWindow {
  Window window; TextBox installPath; CheckBox startCheck,desktopCheck,runCheck; Button primary,cancel,close,browse; TextBlock error;
- bool busy,finished; string target; readonly string[] args; readonly Stopwatch clock=Stopwatch.StartNew();
+ bool busy,finished,welcome=true; string target; readonly string[] args; readonly Stopwatch clock=Stopwatch.StartNew();
  T Get<T>(string name) where T:class{return window.FindName(name) as T;}
  void Text(string name,string value){Get<TextBlock>(name).Text=value;}
- void Stage(string name){foreach(string page in new[]{"OptionsPage","ProgressPage","FinishPage"})Get<StackPanel>(page).Visibility=page==name?Visibility.Visible:Visibility.Collapsed;}
+ void Stage(string name){foreach(string page in new[]{"WelcomePage","OptionsPage","ProgressPage","FinishPage"})Get<StackPanel>(page).Visibility=page==name?Visibility.Visible:Visibility.Collapsed;if(name=="WelcomePage"){welcome=true;primary.Content="다음";cancel.Content="취소";}else if(name=="OptionsPage"){welcome=false;primary.Content="설치";cancel.Content="이전";}}
  [STAThread] static int Main(string[] args){try{return new SetupWindow(args).Run();}catch(Exception e){MessageBox.Show(e.Message,"QuadFinder 설치",MessageBoxButton.OK,MessageBoxImage.Error);return 1;}}
  SetupWindow(string[] input){args=input;}
  int Run(){
@@ -30,15 +30,15 @@ class SetupWindow {
   installPath.Text=target;Text("VersionText","v"+SetupConfig.Version+" · 설치 미리보기");
   Get<Grid>("TitleBar").MouseLeftButtonDown+=(s,e)=>{if(e.ChangedButton==MouseButton.Left)window.DragMove();};
   browse.Click+=(s,e)=>{using(var chooser=new System.Windows.Forms.FolderBrowserDialog()){chooser.Description="QuadFinder 설치 위치";chooser.SelectedPath=installPath.Text;if(chooser.ShowDialog()==System.Windows.Forms.DialogResult.OK)installPath.Text=chooser.SelectedPath;}};
-  close.Click+=(s,e)=>window.Close();cancel.Click+=(s,e)=>window.Close();window.Closing+=(s,e)=>{if(busy){e.Cancel=true;Text("ProgressDetail","설치가 진행 중입니다. 완료되면 닫을 수 있습니다.");}};
-  primary.Click+=async(s,e)=>{if(finished){if(runCheck.IsChecked==true)try{Process.Start(new ProcessStartInfo(Path.Combine(target,"QuadFinder.exe")){UseShellExecute=true});}catch(Exception launch){error.Text=launch.Message;return;}window.Close();return;}await Install();};
+  close.Click+=(s,e)=>window.Close();cancel.Click+=(s,e)=>{if(!busy&&!finished&&!welcome)Stage("WelcomePage");else window.Close();};window.Closing+=(s,e)=>{if(busy){e.Cancel=true;Text("ProgressDetail","설치가 진행 중입니다. 완료되면 닫을 수 있습니다.");}};
+  primary.Click+=async(s,e)=>{if(welcome){Stage("OptionsPage");installPath.Focus();return;}if(finished){if(runCheck.IsChecked==true)try{Process.Start(new ProcessStartInfo(Path.Combine(target,"QuadFinder.exe")){UseShellExecute=true});}catch(Exception launch){error.Text=launch.Message;return;}window.Close();return;}await Install();};
   window.PreviewKeyDown+=(s,e)=>{if(e.Key==Key.Escape&&!busy)window.Close();};
 #if TESTING
   window.ShowInTaskbar=false;window.ShowActivated=false;window.WindowStartupLocation=WindowStartupLocation.Manual;window.Left=-10000;window.Top=0;
 #endif
   window.ContentRendered+=(s,e)=>{
 #if TESTING
-   string folder=Arg("--ui-test=");if(folder!=null){Directory.CreateDirectory(folder);File.WriteAllText(Path.Combine(folder,"ready-ms.txt"),clock.ElapsedMilliseconds.ToString());var timer=new DispatcherTimer{Interval=TimeSpan.FromMilliseconds(120)};timer.Tick+=async(a,b)=>{timer.Stop();Capture(Path.Combine(folder,"setup-options.png"));if(startCheck.IsChecked!=true||desktopCheck.IsChecked!=false||runCheck.IsChecked!=false)throw new Exception("Unexpected shortcut or run defaults");string originalPath=installPath.Text;installPath.Text=Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);await Install();if(finished||String.IsNullOrEmpty(error.Text))throw new Exception("Protected folder validation failed");installPath.Text=originalPath;if(Arg("--desktop-only")!=null){startCheck.IsChecked=false;desktopCheck.IsChecked=true;}await Install();Capture(Path.Combine(folder,finished?"setup-finish.png":"setup-error.png"));File.WriteAllText(Path.Combine(folder,"result.txt"),finished?"ok":error.Text);window.Close();};timer.Start();}
+   string folder=Arg("--ui-test=");if(folder!=null){Directory.CreateDirectory(folder);File.WriteAllText(Path.Combine(folder,"ready-ms.txt"),clock.ElapsedMilliseconds.ToString());var timer=new DispatcherTimer{Interval=TimeSpan.FromMilliseconds(120)};timer.Tick+=async(a,b)=>{timer.Stop();if(!Get<StackPanel>("WelcomePage").IsVisible)throw new Exception("Welcome page missing");Capture(Path.Combine(folder,"setup-welcome.png"));primary.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));if(!Get<StackPanel>("OptionsPage").IsVisible)throw new Exception("Options navigation failed");string retainedPath=installPath.Text;installPath.Text=retainedPath+" retained";startCheck.IsChecked=false;desktopCheck.IsChecked=true;cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));primary.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));if(installPath.Text!=retainedPath+" retained"||startCheck.IsChecked!=false||desktopCheck.IsChecked!=true)throw new Exception("Back navigation discarded options");installPath.Text=retainedPath;startCheck.IsChecked=true;desktopCheck.IsChecked=false;Capture(Path.Combine(folder,"setup-options.png"));if(startCheck.IsChecked!=true||desktopCheck.IsChecked!=false||runCheck.IsChecked!=false)throw new Exception("Unexpected shortcut or run defaults");string originalPath=installPath.Text;installPath.Text=Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);await Install();if(finished||String.IsNullOrEmpty(error.Text))throw new Exception("Protected folder validation failed");installPath.Text=originalPath;if(Arg("--desktop-only")!=null){startCheck.IsChecked=false;desktopCheck.IsChecked=true;}await Install();Capture(Path.Combine(folder,finished?"setup-finish.png":"setup-error.png"));File.WriteAllText(Path.Combine(folder,"result.txt"),finished?"ok":error.Text);window.Close();};timer.Start();}
 #endif
   };
   var app=new Application();app.Run(window);return finished||!busy?0:1;
