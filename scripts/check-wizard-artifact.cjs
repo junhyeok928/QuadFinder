@@ -7,7 +7,7 @@ async function check(){
  const [digest,name]=(await fs.readFile(path.join(directory,'SHA256SUMS.txt'),'utf8')).trim().split(/\s+/);assert.equal(path.basename(name),name);const setup=path.join(directory,name);assert.equal(await hash(setup),digest);
  const temporary=await fs.mkdtemp(path.resolve('output/wizard-artifact-'));
  try{
-  const vendor=require('7zip-bin').path7za,critical=['QuadFinder.exe','resources/app.asar','resources/QuadFinder.Index.exe','resources/QuadFinder.Shell.exe'];
+  const vendor=await require('./archive-tool.cjs').reader(),critical=['QuadFinder.exe','resources/app.asar','resources/QuadFinder.Index.exe','resources/QuadFinder.Shell.exe'];
   const engine=path.join(temporary,'SetupEngine.exe');require('./setup-window.cjs').extractEngine(setup,engine);assert.equal(await hash(engine),manifest.payloadSha256);
   execFileSync(vendor,['x',engine,...critical,'-y','-o'+temporary],{windowsHide:true,stdio:'pipe'});
   for(const file of critical)assert.equal(await hash(path.join(temporary,file)),await hash(path.resolve(`release/${version}/QuadFinder-win32-x64`,file)));
