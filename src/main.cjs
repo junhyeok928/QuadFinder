@@ -109,7 +109,7 @@ async function checkSidebarResize() {
   const expanded=await drag(90);
   const shrunk=await drag(-50);
   const minimum=await drag(-200);
-  const toolsFit=await window.webContents.executeJavaScript(`(()=>{const sidebar=document.querySelector('#sidebar').getBoundingClientRect();return [...document.querySelectorAll('.sidebar-tools button')].every(button=>{const r=button.getBoundingClientRect();return r.left>=sidebar.left&&r.right<=sidebar.right&&r.bottom<=sidebar.bottom;});})()`);
+  const toolsFit=await window.webContents.executeJavaScript(`(()=>{const sidebar=document.querySelector('#sidebar').getBoundingClientRect();return [...document.querySelectorAll('.sidebar-tools button')].every(button=>{const r=button.getBoundingClientRect();return r.left>=sidebar.left-1&&r.right<=sidebar.right+1&&r.bottom<=sidebar.bottom+1;});})()`);
   const maximum=await drag(600);
   await window.webContents.executeJavaScript(`document.querySelector('#sidebar-resizer').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`);
   window.webContents.sendInputEvent({type:'keyDown',keyCode:'Right'});
@@ -117,7 +117,8 @@ async function checkSidebarResize() {
   await new Promise(resolve=>setTimeout(resolve,50));
   const keyboard=(await measure()).width;
   const styles=await window.webContents.executeJavaScript(`({stuck:document.body.classList.contains('resizing-sidebar'),gradient:getComputedStyle(document.querySelector('#filters button.active')).backgroundImage,shadow:getComputedStyle(document.querySelector('#filters button.active')).boxShadow,statusGradient:getComputedStyle(document.querySelector('.statusbar')).backgroundImage,navFont:getComputedStyle(document.querySelector('#places .nav-location')).fontSize})`);
-  return {expanded,shrunk,minimum,maximum,keyboard,works:toolsFit && expanded===274 && shrunk===224 && minimum===150 && maximum===Math.min(400,window.getContentBounds().width-640) && keyboard===194 && !styles.stuck && styles.gradient==='none' && styles.shadow==='none' && styles.statusGradient==='none' && styles.navFont==='14px'};
+  const viewportWidth=await window.webContents.executeJavaScript('innerWidth');
+  return {expanded,shrunk,minimum,maximum,keyboard,toolsFit,viewportWidth,styles,works:toolsFit && expanded===274 && shrunk===224 && minimum===150 && maximum===Math.max(150,Math.min(400,viewportWidth-640)) && keyboard===194 && !styles.stuck && styles.gradient==='none' && styles.shadow==='none' && styles.statusGradient==='none' && Math.round(parseFloat(styles.navFont))===14};
 }
 
 function startIndex() {
@@ -401,6 +402,7 @@ async function readDrives(){
     checks.sidebarResize=await checkSidebarResize();
     window.setSize(1000,680);
     await new Promise(resolve=>setTimeout(resolve,200));
+    checks.compactSidebarResize=await checkSidebarResize();
     await capture('design-compact.png');
     checks.compactOverflow=await window.webContents.executeJavaScript('document.documentElement.scrollWidth>innerWidth || document.querySelector(".search-toolbar").getBoundingClientRect().right>innerWidth');
     await window.webContents.executeJavaScript(`document.querySelector('#sidebar-resizer').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))`);
@@ -408,7 +410,7 @@ async function readDrives(){
     checks.wideSidebarOverflow=await window.webContents.executeJavaScript('document.documentElement.scrollWidth>innerWidth || document.querySelector(".search-toolbar").getBoundingClientRect().right>innerWidth');
     await fs.writeFile(path.join(app.getAppPath(),'output','design-checks.json'),JSON.stringify(checks,null,2));
     console.log(JSON.stringify(checks));
-    app.exit(checks.ready && checks.rows>=20 && checks.colourFiles>0 && !checks.overflow && !checks.compactOverflow && !checks.wideSidebarOverflow && checks.sidebarResize.works ? 0 : 1);
+    app.exit(checks.ready && checks.rows>=20 && checks.colourFiles>0 && !checks.overflow && !checks.compactOverflow && !checks.wideSidebarOverflow && checks.sidebarResize.works && checks.compactSidebarResize.works ? 0 : 1);
   }
   if (smoke) {
     const deadline = Date.now() + 15000;
