@@ -63,3 +63,46 @@ test('trash errors are surfaced and queued jobs run sequentially',()=>fixture(as
   const queue=new OperationQueue({trash:async()=>{assert(!busy);busy=true;await new Promise(resolve=>setTimeout(resolve,20));busy=false;throw new Error('휴지통 사용할 수 없음');}});
   const [a,b]=await Promise.all([perform(queue,{kind:'trash',sources:[file]}),perform(queue,{kind:'copy',sources:[file],destination:dst})]);assert.equal(a.status,'partial');assert.equal(b.status,'completed');assert.equal(await fs.readFile(file,'utf8'),'a');
 }));
+test('overwrite copies verified data, recycles old file and excludes replacement from undo',()=>fixture(async({src,dst,trash})=>{
+ const source=path.join(src,'a.txt'),target=path.join(dst,'a.txt');await fs.writeFile(source,'new');await fs.writeFile(target,'old');let invalidated=0,recorded=[];
+ const queue=new OperationQueue({trash:async file=>fs.rename(file,path.join(trash,path.basename(file))),conflict:async()=> 'overwrite',completed:async actions=>recorded.push(...actions)});queue.on('overwritten',()=>invalidated++);
+ const result=await perform(queue,{kind:'copy',sources:[source],destination:dst});assert.equal(result.status,'completed',JSON.stringify(result.errors));assert.equal(await fs.readFile(target,'utf8'),'new');assert.equal(await fs.readFile(path.join(trash,'a.txt'),'utf8'),'old');assert.equal(await fs.readFile(source,'utf8'),'new');assert.equal(invalidated,1);assert.equal(recorded.length,0);assert.deepEqual(await fs.readdir(dst),['a.txt']);
+}));
+test('folder overwrite merges recursively and preserves destination-only children and type conflicts',()=>fixture(async({src,dst,trash})=>{
+ const source=path.join(src,'folder'),target=path.join(dst,'folder');await fs.mkdir(path.join(source,'nested'),{recursive:true});await fs.mkdir(path.join(target,'nested'),{recursive:true});await fs.writeFile(path.join(source,'nested','same.txt'),'new');await fs.writeFile(path.join(target,'nested','same.txt'),'old');await fs.writeFile(path.join(target,'nested','keep.txt'),'keep');await fs.writeFile(path.join(source,'type'),'file');await fs.mkdir(path.join(target,'type'));await fs.writeFile(path.join(target,'type','extra.txt'),'extra');
+ const queue=new OperationQueue({trash:async file=>fs.rename(file,path.join(trash,path.basename(file))),conflict:async()=> 'overwrite'});const result=await perform(queue,{kind:'copy',sources:[source],destination:dst});assert.equal(result.status,'completed',JSON.stringify(result.errors));assert.equal(await fs.readFile(path.join(target,'nested','same.txt'),'utf8'),'new');assert.equal(await fs.readFile(path.join(target,'nested','keep.txt'),'utf8'),'keep');assert.equal(await fs.readFile(path.join(target,'type'),'utf8'),'file');assert.equal(await fs.readFile(path.join(trash,'folder','type','extra.txt'),'utf8'),'extra');
+}));
+test('overwrite detects destination changes before publication and preserves both originals',()=>fixture(async({src,dst})=>{
+ const source=path.join(src,'a.bin'),target=path.join(dst,'a.bin');await fs.writeFile(source,Buffer.alloc(3*1024*1024,7));await fs.writeFile(target,'old');let modified=false;
+ const queue=new OperationQueue({trash:async()=>assert.fail(),conflict:async()=> 'overwrite'});queue.on('update',jobs=>{if(!modified&&jobs[0].bytes){modified=true;require('fs').appendFileSync(target,'changed');}});
+ const result=await perform(queue,{kind:'copy',sources:[source],destination:dst});assert.equal(result.status,'partial');assert.equal(await fs.readFile(target,'utf8'),'oldchanged');assert.deepEqual(await fs.readdir(dst),['a.bin']);
+}));
+test('failed recycling retains overwritten backup and reports recovery location',()=>fixture(async({src,dst})=>{
+ const source=path.join(src,'a.txt'),target=path.join(dst,'a.txt');await fs.writeFile(source,'new');await fs.writeFile(target,'old');
+ const queue=new OperationQueue({trash:async()=>{throw Error('no recycle bin');},conflict:async()=> 'overwrite'});const result=await perform(queue,{kind:'move',sources:[source],destination:dst});assert.equal(result.status,'partial');assert.equal(await fs.readFile(source,'utf8'),'new');assert.equal(await fs.readFile(target,'utf8'),'new');const backup=(await fs.readdir(dst)).find(name=>name.startsWith('.quadfinder-'));assert.ok(backup);assert.equal(await fs.readFile(path.join(dst,backup,'previous','a.txt'),'utf8'),'old');assert.ok(result.errors[0].message.includes(backup));
+}));
+test('overwrite apply-all prompts once and self-overwrite is rejected',()=>fixture(async({src,dst,trash})=>{
+ for(const name of ['a.txt','b.txt']){await fs.writeFile(path.join(src,name),'new');await fs.writeFile(path.join(dst,name),'old');}let prompts=0;
+ const queue=new OperationQueue({trash:async file=>fs.rename(file,path.join(trash,path.basename(file))),conflict:async()=>{prompts++;return {action:'overwrite',applyAll:true};}});
+ const result=await perform(queue,{kind:'copy',sources:['a.txt','b.txt'].map(name=>path.join(src,name)),destination:dst});assert.equal(result.done,2);assert.equal(prompts,1);
+ assert.equal((await perform(queue,{kind:'copy',sources:[path.join(src,'a.txt')],destination:src})).status,'partial');assert.equal(await fs.readFile(path.join(src,'a.txt'),'utf8'),'new');
+}));
+test('move overwrite recycles previous target and source only after the replacement is complete',()=>fixture(async({src,dst,trash})=>{
+ const source=path.join(src,'a.txt'),target=path.join(dst,'a.txt');await fs.writeFile(source,'new');await fs.writeFile(target,'old');let count=0;
+ const queue=new OperationQueue({trash:async file=>{assert.equal(await fs.readFile(target,'utf8'),'new');await fs.rename(file,path.join(trash,String(count++)));},conflict:async()=> 'overwrite'});
+ const result=await perform(queue,{kind:'move',sources:[source],destination:dst});assert.equal(result.status,'completed',JSON.stringify(result.errors));assert.equal(await fs.readFile(path.join(trash,'0'),'utf8'),'old');assert.equal(await fs.readFile(path.join(trash,'1'),'utf8'),'new');await assert.rejects(fs.stat(source),{code:'ENOENT'});
+}));
+test('cancel during overwrite staging retains destination and source',()=>fixture(async({src,dst})=>{
+ const source=path.join(src,'a.bin'),target=path.join(dst,'a.bin');await fs.writeFile(source,Buffer.alloc(3*1024*1024,9));await fs.writeFile(target,'old');const queue=new OperationQueue({trash:async()=>assert.fail(),conflict:async()=> 'overwrite'});let cancelled=false;
+ queue.on('update',jobs=>{if(!cancelled&&jobs[0].bytes){cancelled=true;queue.cancel(jobs[0].id);}});const result=await perform(queue,{kind:'move',sources:[source],destination:dst});assert.equal(result.status,'cancelled');assert.equal(await fs.readFile(target,'utf8'),'old');assert.equal((await fs.stat(source)).size,3*1024*1024);assert.deepEqual(await fs.readdir(dst),['a.bin']);
+}));
+test('publication failure restores previous target without deleting it during cleanup',()=>fixture(async({src,dst})=>{
+ const source=path.join(src,'a.txt'),target=path.join(dst,'a.txt');await fs.writeFile(source,'new');await fs.writeFile(target,'old');const original=fs.link;
+ fs.link=async(from,to)=>{if(to===target)throw Object.assign(new Error('publication failed'),{code:'EIO'});return original(from,to);};
+ try{const queue=new OperationQueue({trash:async()=>assert.fail(),conflict:async()=> 'overwrite'});const result=await perform(queue,{kind:'copy',sources:[source],destination:dst});assert.equal(result.status,'partial');assert.equal(await fs.readFile(target,'utf8'),'old');assert.deepEqual(await fs.readdir(dst),['a.txt']);}finally{fs.link=original;}
+}));
+test('a raced destination is never replaced and the previous target remains recoverable',()=>fixture(async({src,dst})=>{
+ const source=path.join(src,'a.txt'),target=path.join(dst,'a.txt');await fs.writeFile(source,'new');await fs.writeFile(target,'old');const original=fs.link;
+ fs.link=async(from,to)=>{if(to===target)await fs.writeFile(target,'raced','utf8');return original(from,to);};
+ try{const queue=new OperationQueue({trash:async()=>assert.fail(),conflict:async()=> 'overwrite'});const result=await perform(queue,{kind:'copy',sources:[source],destination:dst});assert.equal(result.status,'partial');assert.equal(await fs.readFile(target,'utf8'),'raced');const backup=(await fs.readdir(dst)).find(name=>name.startsWith('.quadfinder-'));assert.ok(backup);assert.equal(await fs.readFile(path.join(dst,backup,'previous','a.txt'),'utf8'),'old');}finally{fs.link=original;}
+}));

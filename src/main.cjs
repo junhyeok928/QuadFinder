@@ -15,6 +15,8 @@ const {normalize:normalizeNavigation}=require('./navigation-state.cjs');
 const {normalize:normalizeView}=require('./view-options.cjs');
 const pdfPreviews=new Map();
 let shellMenuOpen=false;
+const dialogs=new (require('./dialog-requests.cjs').DialogRequests)(send);
+async function dialogFile(file,label){let meta='';try{const stat=await fs.stat(file);meta=(stat.isDirectory()?'폴더':`${stat.size.toLocaleString()} 바이트`)+` · 수정 ${stat.mtime.toLocaleString('ko-KR')}`;}catch{}return {label,name:path.basename(file),path:file,meta};}
 async function enrich(entries){if(!entries.length)return entries;const attributes=await windowsShell.request({mode:'attributes',paths:entries.map(entry=>entry.path)});const map=new Map(attributes.filter(item=>item.known!==false).map(item=>[item.path.toLowerCase(),item]));return entries.map(entry=>({...entry,...map.get(entry.path.toLowerCase())}));}
 protocol.registerSchemesAsPrivileged([{ scheme: 'quadfinder', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 const smoke = !app.isPackaged && process.argv.includes('--smoke-test');
@@ -53,7 +55,7 @@ function setZoom(value,persist=true){
 let operations;
 let undo;
 let updater;
-let functionSmokeRoot=null;
+let functionSmokeRoot=null,interactiveDialogSmoke=false;
 let indexTimer, changedTimer, rootsSave=Promise.resolve();
 const changedPaths=new Set(),changedFolders=new Set();
 let refreshAll=false,watchedFolderKey='';
@@ -196,7 +198,7 @@ async function setup() {
     if(url.hostname==='app'&&url.pathname==='/navigation-state.js')return net.fetch(pathToFileURL(path.join(__dirname,'navigation-state.cjs')).href);
     if(url.hostname==='app'&&url.pathname==='/change-policy.js')return net.fetch(pathToFileURL(path.join(__dirname,'change-policy.cjs')).href);
     if(url.hostname==='app'&&url.pathname==='/view-options.js')return net.fetch(pathToFileURL(path.join(__dirname,'view-options.cjs')).href);
-    const assets = new Set(['index.html', 'styles.css', 'themes.css', 'theme-init.js', 'renderer.js', 'features.js', 'marquee.js', 'view-ui.js', 'sidebar.js', 'icons.js', 'preview.js']);
+    const assets = new Set(['index.html', 'styles.css', 'themes.css', 'theme-init.js', 'renderer.js', 'features.js', 'marquee.js', 'dialogs.js', 'view-ui.js', 'sidebar.js', 'icons.js', 'preview.js']);
     const file = url.pathname.slice(1) || 'index.html';
     if (url.hostname !== 'app' || !assets.has(file)) return new Response('Not found', { status: 404 });
     return net.fetch(pathToFileURL(path.join(__dirname, 'renderer', file)).href);
@@ -206,6 +208,7 @@ async function setup() {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true,
       backgroundThrottling:!smoke&&!designPreview,
       additionalArguments: [...(designPreview ? ['--quadfinder-design-preview'] : []),`--quadfinder-theme=${layout?.theme==='light'?'light':'dark'}`] } });
+  if(smoke){const evaluate=window.webContents.executeJavaScript.bind(window.webContents);window.webContents.executeJavaScript=(code,...args)=>evaluate(code,...args).catch(error=>{console.error('Failed UI script:',code.slice(0,800));throw error;});}
   if(smoke||designPreview){const sendInput=window.webContents.sendInputEvent.bind(window.webContents);window.webContents.sendInputEvent=input=>{const scale=window.webContents.getZoomFactor();sendInput({...input,...(Number.isFinite(input.x)?{x:Math.round(input.x*scale)}:{}),...(Number.isFinite(input.y)?{y:Math.round(input.y*scale)}:{})});};}
   window.on('app-command',(event,command)=>{
     if(!['browser-backward','browser-forward'].includes(command))return;
@@ -225,19 +228,23 @@ async function setup() {
   undo=new UndoManager({trash:file=>shell.trashItem(file),working:()=>operations?.active()||operations?.running,changed:filesChanged});
   undo.on('update',value=>send('undo:changed',value));
   operations=new OperationQueue({trash:file=>shell.trashItem(file),changed:filesChanged,completed:(actions,label)=>undo.record(actions,label),conflict:async info=>{
-    if(smoke&&functionSmokeRoot&&info.source.startsWith(functionSmokeRoot+path.sep)&&info.destination.startsWith(functionSmokeRoot+path.sep))return 'keep-both';
-    const result=await dialog.showMessageBox(window,{type:'question',message:'같은 이름의 파일 또는 폴더가 있습니다.',detail:`원본: ${info.source}\n대상: ${info.destination}`,buttons:['둘 다 유지','건너뛰기','작업 취소'],defaultId:0,cancelId:2,checkboxLabel:'이번 작업의 모든 충돌에 적용',checkboxChecked:false});
-    return {action:['keep-both','skip','cancel'][result.response],applyAll:result.checkboxChecked};
+    if(smoke&&!interactiveDialogSmoke&&functionSmokeRoot&&info.source.startsWith(functionSmokeRoot+path.sep)&&info.destination.startsWith(functionSmokeRoot+path.sep))return 'keep-both';
+    return dialogs.ask({type:'conflict',title:'같은 이름의 항목이 있습니다',description:'대상 폴더에 이미 있는 항목을 어떻게 처리할까요?',files:await Promise.all([dialogFile(info.source,'가져올 항목'),dialogFile(info.destination,'기존 항목')]),note:'폴더는 병합하고 대상에만 있는 파일은 유지합니다. 교체 전 항목은 휴지통에 보관하며 덮어쓴 항목은 실행 취소할 수 없습니다.',applyAll:true,choices:[{action:'keep-both',label:'둘 다 유지',description:'새 이름을 붙여 두 항목을 모두 보관합니다.'},{action:'skip',label:'건너뛰기',description:'기존 항목을 유지하고 이 항목은 복사하지 않습니다.'},{action:'overwrite',label:'덮어쓰기',description:'가져올 항목으로 기존 파일을 교체합니다.'}]},info.signal);
   }});
   operations.on('update',jobs=>{send('operations:changed',jobs);undo.publish();});
   operations.on('undo-error',error=>send('view:error',error.name==='AbortError'?'내용 검증을 중단했습니다. 완료한 파일 작업은 유지됩니다.':'실행 취소 기록을 만들지 못했습니다: '+error.message));
   operations.on('trashed',()=>undo.clear());
+  operations.on('overwritten',()=>undo.clear());
+  handle('dialog:reply',input=>{if(!input||typeof input.id!=='string')throw new Error('잘못된 확인 응답입니다.');return dialogs.finish(input.id,input);});
+  window.webContents.on('render-process-gone',()=>dialogs.clear());
+  window.webContents.on('did-start-loading',()=>dialogs.clear());
+  window.on('closed',()=>dialogs.clear());
   updater=new AppUpdater({preview:app.isPackaged&&require('node:fs').existsSync(path.join(path.dirname(process.execPath),'quadfinder-preview.json')),native:require('electron').autoUpdater,version:app.getVersion(),installed:app.isPackaged&&require('node:fs').existsSync(updateExecutable(process.execPath)),canInstall:()=>!operations.active()&&!operations.running&&!undo.busy});
   updater.on('update',value=>send('updater:changed',value));updater.start(process.argv.includes('--squirrel-firstrun'));
   window.on('close',event=>{
     if(operations.active()||undo.busy){
       event.preventDefault();
-      dialog.showMessageBox(window,{type:'question',message:'진행 중인 파일 작업이 있습니다.',detail:'작업을 취소한 뒤 창을 닫으세요.',buttons:['계속 작업'],defaultId:0});
+      void dialogs.ask({key:'busy-close',title:'진행 중인 작업이 있습니다',description:'작업 창에서 진행 중인 작업을 완료하거나 취소한 뒤 창을 닫아 주세요.',cancelLabel:'돌아가기',choices:[]});
     }else if(zoomSaveTimer){
       event.preventDefault();clearTimeout(zoomSaveTimer);zoomSaveTimer=null;
       writeSettings({}).then(()=>window.close()).catch(error=>send('view:error',error.message));
@@ -295,9 +302,7 @@ async function readDrives(){
     const file = localPath(value);
     await fs.access(file);
     const executable=/\.(exe|msi|bat|cmd|ps1|vbs|js|jse|wsf|scr|com|lnk|url|hta|reg)$/i.test(file);
-    const { response } = executable?await dialog.showMessageBox(window, { type: 'question', buttons: ['취소', '열기'], defaultId: 0, cancelId: 0,
-      message: '이 파일을 실행하시겠습니까?', detail: file }):{response:1};
-    if (response !== 1) return false;
+    if(executable){const result=await dialogs.ask({title:'이 파일을 실행할까요?',description:'연결된 프로그램으로 파일을 실행합니다. 실행할 항목을 확인해 주세요.',files:[await dialogFile(file,'실행할 파일')],choices:[{action:'open',label:'실행'}]});if(result.action!=='open')return false;}
     const error = await shell.openPath(file);
     if (error) throw new Error(error);
     return true;
@@ -319,8 +324,9 @@ async function readDrives(){
     if(!input||!['copy','move','trash'].includes(input.kind))throw new Error('잘못된 작업입니다.');
     const sources=await normalizeSources(input.sources);
     if(input.kind==='trash'){
-      const {response}=smoke&&functionSmokeRoot&&sources.every(source=>source.startsWith(functionSmokeRoot+path.sep))?{response:1}:await dialog.showMessageBox(window,{type:'question',message:`${sources.length}개 항목을 휴지통으로 이동하시겠습니까?`,detail:sources.slice(0,8).join('\n')+(sources.length>8?'\n…':''),buttons:['취소','휴지통으로 이동'],defaultId:0,cancelId:0});
-      if(response!==1)return null;
+      if(!(smoke&&!interactiveDialogSmoke&&functionSmokeRoot&&sources.every(source=>source.startsWith(functionSmokeRoot+path.sep)))){
+        const result=await dialogs.ask({type:'danger',title:sources.length===1?'휴지통으로 이동할까요?':sources.length.toLocaleString()+'개 항목을 휴지통으로 이동할까요?',description:'선택한 항목을 현재 위치에서 제거합니다.',files:await Promise.all(sources.slice(0,5).map(file=>dialogFile(file,''))),note:(sources.length>5?'외 '+(sources.length-5)+'개 항목. ':'')+'휴지통에서 복원할 수 있습니다. 휴지통을 사용할 수 없으면 작업을 중단합니다.',choices:[{action:'trash',label:'휴지통으로 이동'}]});if(result.action!=='trash')return null;
+      }
     }
     return operations.enqueue({kind:input.kind,sources,destination:input.destination});
   });
@@ -456,6 +462,8 @@ async function readDrives(){
     functionSmokeRoot=await fs.mkdtemp(path.join(app.getAppPath(),'output','functional-smoke-'));
     result.viewOptions=await require('../scripts/view-smoke.cjs').run({window,root:functionSmokeRoot,appPath:app.getAppPath(),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;}});
     result.fileOperations=await require('../scripts/functional-smoke.cjs').run({window,root:functionSmokeRoot});
+    interactiveDialogSmoke=true;
+    try{result.dialogs=await require('../scripts/dialog-smoke.cjs').run({window,root:functionSmokeRoot,output:path.join(app.getAppPath(),'output')});}finally{interactiveDialogSmoke=false;}
     result.refresh=await require('../scripts/refresh-smoke.cjs').run({window,root:functionSmokeRoot,notify:paths=>send('files:changed',paths),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},networkRoot:process.env.QUADFINDER_TEST_NETWORK_ROOT,stateFile:stateFile(),rootsFile:rootsFile()});
     result.sidebar=await require('../scripts/sidebar-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile(),appPath:app.getAppPath()});
     result.recent=await require('../scripts/recent-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile()});

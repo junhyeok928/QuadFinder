@@ -46,6 +46,8 @@ const filled = {
   photoshop:'<rect x="2" y="1" width="20" height="22" rx="3" fill="#091f32" stroke="#2ab3f5" stroke-width="1.4"/><text x="12" y="17" fill="#42c4ff" font-family="Arial" font-size="13" text-anchor="middle">Ps</text>',
   illustrator:'<rect x="2" y="1" width="20" height="22" rx="3" fill="#2c1a0d" stroke="#e69a25" stroke-width="1.4"/><text x="12" y="17" fill="#f4b54a" font-family="Arial" font-size="14" text-anchor="middle">Ai</text>'
 };
+paths.copy='<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>';
+paths.trash='<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/>';
 paths['desktop-small']=paths.desktop;
 paths.list='<path d="M8 6h13M8 12h13M8 18h13M3 6h.1M3 12h.1M3 18h.1"/>';
 paths.pin='<path d="m9 3 9 4-3 3-1 5-4-2-6 8 4-9-3-2 4-2z"/>';

@@ -155,15 +155,19 @@ class OperationQueue extends EventEmitter {
         try {
           if(job.kind==='trash') {await this.trash(source);job.done++;this.emit('trashed');this.changed([path.dirname(source)]);continue;}
           if(job.kind==='move'&&key(path.dirname(source))===key(destination)){job.skipped++;continue;}
-          let target=childPath(destination,path.basename(source));
+          let target=childPath(destination,path.basename(source)),existing=null;
           if(await exists(target)) {
-            const response=collisionRule||await this.conflict({source,destination:target,kind:job.kind});
+            const response=collisionRule||await this.conflict({source,destination:target,kind:job.kind,signal});
             const rule=typeof response==='string'?response:response.action;
             if(response.applyAll)collisionRule=response;
             if(rule==='cancel'){job.controller.abort();abort(signal);}
             if(rule==='skip'){job.skipped++;continue;}
-            if(rule!=='keep-both')throw new Error('올바르지 않은 충돌 처리입니다.');
-            target=await alternativePath(target);
+            if(rule==='overwrite'){
+              if(key(source)===key(target))throw new Error('같은 파일이나 폴더를 자기 자신으로 덮어쓸 수 없습니다.');
+              existing=await inspectTree(target,signal);
+              if(existing.records[0].ino!==0&&existing.records[0].ino===plan.records[0].ino&&(await fs.stat(target)).dev===(await fs.stat(source)).dev)throw new Error('동일한 파일을 덮어쓸 수 없습니다.');
+            }else if(rule==='keep-both')target=await alternativePath(target);
+            else throw new Error('올바르지 않은 충돌 처리입니다.');
           }
           abort(signal);
           // Staging belongs exclusively to this job; incomplete data is never published as a finished file.
@@ -171,21 +175,15 @@ class OperationQueue extends EventEmitter {
           const payload=path.join(stage,'payload');
           await copyTree(plan,payload,signal,(bytes,file)=>{const first=job.bytes===0;job.bytes+=bytes;job.current=file;this.publish(job,first);});
           abort(signal);await unchanged(plan.records);
-          // Files use an exclusive hard-link publication. Directory rename is non-overwriting on Windows.
-          if(plan.records[0].directory){if(await exists(target))throw new Error('대상 경로가 작업 도중 생성되었습니다.');await fs.rename(payload,target);}
-          else {
-            try {await fs.link(payload,target);} catch(error) {
-              if(!['ENOTSUP','ENOSYS','EPERM','EINVAL'].includes(error.code))throw error;
-              await fs.copyFile(payload,target,constants.COPYFILE_EXCL);
-            }
-            await fs.unlink(payload);
-          }
+          const publisher=require('./overwrite.cjs');
+          if(existing)await publisher.replace({plan,existing,target,payload,stage,signal,progress:(bytes,file)=>{job.bytes+=bytes;job.current=file;this.publish(job);},extraBytes:bytes=>job.totalBytes+=bytes,trash:this.trash,committed:()=>{this.emit('overwritten');this.changed([destination]);}});
+          else await publisher.publish(payload,target,plan.records[0].directory);
           await fs.rmdir(stage);stage=null;
           this.changed([destination]);
           if(job.kind==='move') {await unchanged(plan.records);await this.trash(source);}
-          job.done++;undoActions.push({kind:job.kind,source,target});this.changed([destination,path.dirname(source)]);
+          job.done++;if(!existing)undoActions.push({kind:job.kind,source,target});this.changed([destination,path.dirname(source)]);
         } catch(error) {
-          if(stage){await fs.rm(stage,{recursive:true,force:true}).catch(()=>{});stage=null;}
+          if(stage){if(error.recoveryStage!==stage)await fs.rm(stage,{recursive:true,force:true}).catch(()=>{});stage=null;}
           if(error.name==='AbortError')throw error;
           job.errors.push({path:source,message:error.message});
         }
