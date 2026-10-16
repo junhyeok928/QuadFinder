@@ -1,7 +1,5 @@
 const fs=require('node:fs/promises');
 const path=require('node:path');
-const {promisify}=require('node:util');
-const execute=promisify(require('node:child_process').execFile);
 async function size(dir){let bytes=0,files=0;for(const entry of await fs.readdir(dir,{withFileTypes:true})){const name=path.join(dir,entry.name);if(entry.isDirectory()){const nested=await size(name);bytes+=nested.bytes;files+=nested.files;}else{bytes+=(await fs.stat(name)).size;files++;}}return {bytes,files};}
 async function build(){
   const {packager}=await import('@electron/packager');
@@ -18,13 +16,10 @@ async function build(){
       if(path.dirname(target)!==locales||!name.endsWith('.pak'))throw new Error('Unexpected locale path');
       await fs.unlink(target);
     }
-    const after=await size(root),zip=path.join(path.dirname(root),`QuadFinder-${version}-win32-x64-portable.zip`);
-    await fs.rm(zip,{force:true});
-    const literal=value=>"'"+value.replaceAll("'","''")+"'";
-    await execute('powershell.exe',['-NoProfile','-NonInteractive','-Command',`Compress-Archive -LiteralPath ${literal(root)} -DestinationPath ${literal(zip)} -CompressionLevel Optimal`],{windowsHide:true,maxBuffer:1024*1024});
-    const report={version,before,after,savedBytes:before.bytes-after.bytes,zipBytes:(await fs.stat(zip)).size,locales:await fs.readdir(locales)};
+    const after=await size(root);
+    const report={version,before,after,savedBytes:before.bytes-after.bytes,locales:await fs.readdir(locales)};
     await fs.writeFile(path.join(path.dirname(root),'size-report.json'),JSON.stringify(report,null,2));
-    console.log(JSON.stringify({output:root,zip,...report},null,2));
+    console.log(JSON.stringify({output:root,...report},null,2));
   }
 }
 build().catch(error=>{console.error(error);process.exitCode=1;});

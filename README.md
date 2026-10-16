@@ -15,7 +15,7 @@
 
 QuadFinder는 Everything의 파일명 검색과 Q-Dir의 다중 패널 탐색에서 영감을 받은 Windows 파일 관리자입니다. 여러 폴더를 나란히 열고, PC의 로컬 파일을 검색하고, 패널 사이에서 파일을 정리할 수 있습니다. 별도 Everything 설치 없이 자체 인덱스로 동작합니다.
 
-> **개발 미리보기** · 현재는 로컬 실행 폴더와 ZIP으로 빌드합니다. 설치 프로그램 제작과 GitHub Release 게시를 진행하지 않습니다.
+> **개발 미리보기** · 현재는 로컬 실행 폴더로 빌드합니다. 설치 프로그램 제작과 GitHub Release 게시를 진행하지 않습니다.
 
 ## 화면
 
@@ -48,13 +48,12 @@ QuadFinder는 Everything의 파일명 검색과 Q-Dir의 다중 패널 탐색에
 
 ### 실행본 사용
 
-로컬 빌드 결과에서 `QuadFinder.exe`를 실행합니다. ZIP으로 전달받았다면 **전체 압축을 먼저 해제**하고 실행하세요. 실행 파일 옆의 리소스와 DLL이 함께 필요합니다.
+로컬 빌드 결과에서 `QuadFinder.exe`를 실행합니다. 실행 파일 옆의 리소스와 DLL이 함께 필요합니다.
 
 ```text
 release/<버전>/
 ├── QuadFinder-win32-x64/                   # 실행 폴더
 │   └── QuadFinder.exe
-├── QuadFinder-<버전>-win32-x64-portable.zip # 실행 폴더 압축본
 └── size-report.json                        # 빌드 용량 보고서
 ```
 
@@ -118,7 +117,7 @@ Windows 셸·인덱스 도우미는 .NET Framework 4.x C# 컴파일러로 자동
 | `pnpm smoke` | 실제 Electron 입력으로 기능 통합 검사 |
 | `pnpm design:check` | 테마·배율·작은 화면의 레이아웃 검사 |
 | `pnpm preview` | 예시 데이터 기반 브라우저 UI 미리보기 |
-| `pnpm release` | 로컬 실행 폴더·ZIP 생성 (`pnpm package`와 동일) |
+| `pnpm release` | 로컬 실행 폴더 생성 (`pnpm package`와 동일) |
 | `pnpm package:check` | 패키지 소스·필수 리소스·언어 파일 검증 |
 
 GitHub의 [Windows checks](https://github.com/junhyeok928/QuadFinder/actions/workflows/ci.yml)는 테스트·UI 검사·패키징을 수행합니다. 설치 및 업데이트 관련 코드는 향후 사용을 위해 보존하며 현재 기본 빌드에는 포함하지 않습니다.

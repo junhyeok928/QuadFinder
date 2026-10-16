@@ -8,6 +8,6 @@ async function check(){
  const pkg=JSON.parse(asar.extractFile(archive,'package.json'));assert.equal(pkg.version,version);assert.equal(pkg.main,'src/main.cjs');
  assert.deepEqual(fs.readdirSync(path.join(root,'locales')).sort(),['en-US.pak','ko.pak']);
  for(const file of ['QuadFinder.exe','icudtl.dat','resources.pak','LICENSE','LICENSES.chromium.html','resources/QuadFinder.Shell.exe','resources/QuadFinder.Index.exe'])assert.ok(fs.statSync(path.join(root,file)).size>0,file);
- const zip=path.resolve('release',version,`QuadFinder-${version}-win32-x64-portable.zip`);assert.ok(fs.statSync(zip).size>0);console.log('Portable package verified: current app sources, native helpers, licenses, ko/en-US and ZIP.');
+ console.log('Portable package verified: current app sources, native helpers, licenses and ko/en-US.');
 }
 check().catch(error=>{console.error(error);process.exitCode=1;});

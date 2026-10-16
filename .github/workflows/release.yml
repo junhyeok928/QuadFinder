@@ -21,9 +21,3 @@ jobs:
       - run: pnpm design:check
       - run: pnpm package
       - run: pnpm package:check
-      - uses: actions/upload-artifact@v4
-        with:
-          name: QuadFinder-portable-x64
-          path: |
-            release/*/*.zip
-            release/*/size-report.json
