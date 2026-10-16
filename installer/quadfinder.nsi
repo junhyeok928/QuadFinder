@@ -6,20 +6,20 @@
 !include "x64.nsh"
 !include "Sections.nsh"
 !include "${CONFIG}"
-Name "QuadFinder 미리보기"
+Name "QuadFinder"
 OutFile "${OUTPUT}"
 InstallDir "${DEFAULT_DIR}"
 InstallDirRegKey HKCU "${REG_KEY}" "InstallLocation"
 RequestExecutionLevel user
 ManifestDPIAware true
 SetFont "맑은 고딕" 9
-BrandingText "QuadFinder ${VERSION} · 미리보기"
+BrandingText "QuadFinder ${VERSION}"
 SetCompressor lzma
 SetCompressorDictSize 32
 SetOverwrite on
-VIProductVersion "${VERSION}.0"
-VIAddVersionKey /LANG=1042 "ProductName" "QuadFinder 미리보기"
-VIAddVersionKey /LANG=1042 "FileDescription" "QuadFinder 설치 마법사 (출시 전 검토용)"
+VIProductVersion "${NUMERIC_VERSION}"
+VIAddVersionKey /LANG=1042 "ProductName" "QuadFinder"
+VIAddVersionKey /LANG=1042 "FileDescription" "QuadFinder 설치 마법사"
 VIAddVersionKey /LANG=1042 "FileVersion" "${VERSION}"
 VIAddVersionKey /LANG=1042 "LegalCopyright" "QuadFinder contributors"
 Icon "${ICON}"
@@ -94,6 +94,7 @@ Function ValidateDirectory
   IntOp $0 $0 & 0x400
   IntCmp $0 0 +2
   Goto bad
+  IfFileExists "$INSTDIR\quadfinder-install.json" good
   IfFileExists "$INSTDIR\quadfinder-preview.json" good
   FindFirst $0 $1 "$INSTDIR\*"
   loop:
@@ -125,14 +126,15 @@ Section "프로그램 파일 (필수)" Main
   Call EnsureClosed
   Call ValidateDirectory
   IfErrors 0 +3
-  MessageBox MB_OK|MB_ICONSTOP "비어 있는 전용 폴더 또는 기존 미리보기 설치 폴더를 선택해 주세요." /SD IDOK
+  MessageBox MB_OK|MB_ICONSTOP "비어 있는 전용 폴더 또는 기존 QuadFinder 설치 폴더를 선택해 주세요." /SD IDOK
   Abort
   !insertmacro InstallFiles
-  FileOpen $0 "$INSTDIR\quadfinder-preview.json" w
-  FileWrite $0 '{"app":"QuadFinder","preview":true,"version":"${VERSION}"}'
+  Delete "$INSTDIR\quadfinder-preview.json"
+  FileOpen $0 "$INSTDIR\quadfinder-install.json" w
+  FileWrite $0 '{"app":"QuadFinder","installer":"nsis","version":"${VERSION}"}'
   FileClose $0
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-  WriteRegStr HKCU "${REG_KEY}" "DisplayName" "QuadFinder 미리보기"
+  WriteRegStr HKCU "${REG_KEY}" "DisplayName" "QuadFinder"
   WriteRegStr HKCU "${REG_KEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "${REG_KEY}" "Publisher" "QuadFinder contributors"
   WriteRegStr HKCU "${REG_KEY}" "InstallLocation" "$INSTDIR"
@@ -192,7 +194,7 @@ Function OptionsPage
   Pop $DesktopCheck
   SetCtlColors $DesktopCheck 223044 F4F6F9
   ${NSD_SetState} $DesktopCheck $ShortcutDesktop
-  ${NSD_CreateLabel} 0 118u 100% 14u "현재 사용자 전용 설치 · 미리보기 자동 업데이트 꺼짐"
+  ${NSD_CreateLabel} 0 118u 100% 14u "현재 사용자 전용 설치 · 업데이트는 GitHub에서 다운로드"
   Pop $0
   SetCtlColors $0 5C6D82 F4F6F9
   GetDlgItem $0 $HWNDPARENT 1
@@ -212,7 +214,7 @@ Function OptionsPageLeave
   ${NSD_GetText} $PathInput $INSTDIR
   Call ValidateDirectory
   IfErrors 0 valid
-  MessageBox MB_OK|MB_ICONEXCLAMATION "비어 있는 전용 폴더 또는 기존 QuadFinder 미리보기 폴더를 선택하세요."
+  MessageBox MB_OK|MB_ICONEXCLAMATION "비어 있는 전용 폴더 또는 기존 QuadFinder 폴더를 선택하세요."
   Abort
   valid:
   ${NSD_GetState} $StartCheck $ShortcutStart
@@ -319,6 +321,7 @@ Section "Uninstall"
   Call un.CheckDir
   !insertmacro UninstallFiles
   Delete "$INSTDIR\quadfinder-preview.json"
+  Delete "$INSTDIR\quadfinder-install.json"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"
   Delete "${MENU_DIR}\QuadFinder.lnk"

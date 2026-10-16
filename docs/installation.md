@@ -1,8 +1,8 @@
-# 설치 UX 검토
+# 설치 안내
 
 [← README](../README.md)
 
-설치 화면은 앱의 **뉴트럴 블랙** 톤을 따르는 전용 단일 창입니다. 현재 설치 파일은 출시 전 검토용이며 자동 업데이트를 사용하지 않습니다.
+설치 화면은 앱의 **뉴트럴 블랙** 톤을 따르는 전용 단일 창입니다. 설치 EXE와 포터블 ZIP을 제공하며, 베타에서는 업데이트 버튼으로 GitHub 릴리스 페이지를 엽니다.
 
 ## 화면과 동작
 
@@ -34,7 +34,7 @@
 
 ## 설치와 제거
 
-기본은 현재 사용자 계정의 `%LOCALAPPDATA%\Programs\QuadFinderPreview`입니다. 환영 화면의 다음 → 옵션 화면의 이전으로 이동해도 입력한 경로와 바로가기 선택을 보존합니다. 설정은 `%APPDATA%\QuadFinder`를 공유합니다. 새 UI는 Windows 10/11의 .NET Framework 4.8 환경을 기준으로 합니다.
+기본은 현재 사용자 계정의 `%LOCALAPPDATA%\Programs\QuadFinder`입니다. 환영 화면의 다음 → 옵션 화면의 이전으로 이동해도 입력한 경로와 바로가기 선택을 보존합니다. 설정은 `%APPDATA%\QuadFinder`를 공유합니다. 새 UI는 Windows 10/11의 .NET Framework 4.8 환경을 기준으로 합니다.
 
 제거는 기존 NSIS 제거 엔진을 사용합니다. 설정·즐겨찾기·검색 인덱스는 기본 보존하며, 사용자가 선택하면 함께 제거합니다. 실제 문서·사진·즐겨찾기 대상 폴더는 제거하지 않습니다.
 
@@ -42,15 +42,15 @@
 
 | 경로 | 적합한 사용 방식 | 고려 사항 |
 | --- | --- | --- |
-| `%LOCALAPPDATA%\Programs\QuadFinderPreview` | 현재 사용자 전용 설치 — 기본 권장 | 현재 설치 방식과 맞으며 관리자 권한 없이 설치 |
+| `%LOCALAPPDATA%\Programs\QuadFinder` | 현재 사용자 전용 설치 — 기본 권장 | 현재 설치 방식과 맞으며 관리자 권한 없이 설치 |
 | `C:\Program Files\QuadFinder` | 모든 계정이 공유하는 설치 | 별도의 모든 사용자 설치 모드와 관리자 권한 처리가 필요 |
 | `D:\Apps\QuadFinder` 등 | 드라이브·설치 폴더를 직접 관리 | 해당 폴더 쓰기 권한이 필요하며 현재는 사용자 전용 설치로 동작 |
 
-설치 위치만 바꿔도 설치 범위가 모든 사용자용으로 바뀌지는 않습니다. 프로그램 파일과 별개로 설정은 `%APPDATA%\QuadFinder`에 저장합니다. 정식 배포 시에는 사용자 전용 기본 경로의 폴더명을 `QuadFinder`로 정리할 수 있습니다. [Windows 설치 범위 안내](https://learn.microsoft.com/en-us/windows/win32/msi/installation-context)
+설치 위치만 바꿔도 설치 범위가 모든 사용자용으로 바뀌지는 않습니다. 프로그램 파일과 별개로 설정은 `%APPDATA%\QuadFinder`에 저장합니다. [Windows 설치 범위 안내](https://learn.microsoft.com/en-us/windows/win32/msi/installation-context)
 
 ## 제작과 확인
 
-기본 `pnpm release`는 실행 폴더만 생성합니다. 설치 UI를 명시적으로 검토할 때에만 다음 명령을 사용합니다.
+기본 `pnpm release`는 실행 폴더만 생성합니다. 설치 파일 제작이 명시적으로 요청된 경우에만 다음 명령을 사용합니다.
 
 ```powershell
 pnpm wizard
@@ -58,8 +58,8 @@ node scripts/check-wizard.cjs --fixtures-only --screenshots
 node scripts/check-wizard-artifact.cjs
 ```
 
-검토용 파일: `release/<버전>/wizard/QuadFinder-Setup.exe`
+설치 파일: `release/<버전>/wizard/QuadFinder-Setup.exe`
 
-화면은 `installer/setup-window.xaml`, 동작은 `installer/SetupWindow.cs`, 파일 설치·제거는 `installer/quadfinder.nsi`에서 관리합니다. 기존 `installer` 명령의 Squirrel 제작 코드는 별도로 보존되어 있으며 이 검토용 설치본과 구분됩니다.
+화면은 `installer/setup-window.xaml`, 동작은 `installer/SetupWindow.cs`, 파일 설치·제거는 `installer/quadfinder.nsi`에서 관리합니다. 구형 Squirrel 설치 제작 경로는 제거하고 이 설치 방식으로 통일했습니다.
 
 검사는 별도 테스트 폴더·전용 레지스트리·테스트 바로가기를 사용합니다. UI 기본 선택, 보호 폴더 거부, 바로가기 선택 반영, 무인 설치(`/S`), 재설치, 설정 보존·선택 삭제, 무관한 파일 보존을 검증합니다. 실제 설치 파일에서는 UI 소스·내장 엔진·앱·도우미의 해시를 확인합니다.

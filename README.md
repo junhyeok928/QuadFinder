@@ -6,7 +6,7 @@
   <p>
     <a href="https://github.com/junhyeok928/QuadFinder/actions/workflows/ci.yml"><img src="https://github.com/junhyeok928/QuadFinder/actions/workflows/ci.yml/badge.svg" alt="Windows checks"></a>
     <img src="https://img.shields.io/badge/platform-Windows_x64-0078D4" alt="Windows x64">
-    <img src="https://img.shields.io/badge/status-preview-737373" alt="개발 미리보기">
+    <img src="https://img.shields.io/badge/status-beta-737373" alt="베타">
   </p>
   <p><a href="#주요-기능">주요 기능</a> · <a href="#시작하기">시작하기</a> · <a href="docs/usage.md">사용 가이드</a> · <a href="#개발">개발</a></p>
 </div>
@@ -15,7 +15,7 @@
 
 QuadFinder는 Everything의 파일명 검색과 Q-Dir의 다중 패널 탐색에서 영감을 받은 Windows 파일 관리자입니다. 여러 폴더를 나란히 열고, PC의 로컬 파일을 검색하고, 패널 사이에서 파일을 정리할 수 있습니다. 별도 Everything 설치 없이 자체 인덱스로 동작합니다.
 
-> **개발 미리보기** · 기본 빌드는 로컬 실행 폴더입니다. 요청에 따라 별도로 제작하는 [설치 UI 검토본](docs/installation.md)이 있으며 GitHub Release는 게시하지 않습니다.
+> **공개 베타** · [GitHub 릴리스](https://github.com/junhyeok928/QuadFinder/releases)에서 설치 EXE 또는 포터블 ZIP을 다운로드하세요. [설치 안내](docs/installation.md)
 
 ## 화면
 
@@ -48,7 +48,9 @@ QuadFinder는 Everything의 파일명 검색과 Q-Dir의 다중 패널 탐색에
 
 ### 실행본 사용
 
-로컬 빌드 결과에서 `QuadFinder.exe`를 실행합니다. 실행 파일 옆의 리소스와 DLL이 함께 필요합니다.
+설치 버전은 `QuadFinder-Setup.exe`를 실행하세요. 포터블 버전은 ZIP 전체를 원하는 폴더에 풀고 `QuadFinder.exe`를 실행하세요. EXE 옆의 리소스와 DLL이 함께 필요합니다. 두 버전 모두 설정은 `%APPDATA%\QuadFinder`에 저장합니다.
+
+첫 실행에는 인덱싱 안내와 간단한 사용법이 표시됩니다. 업데이트 버튼은 다운로드 페이지를 열며 베타에서는 자동 업데이트를 제공하지 않습니다.
 
 ```text
 release/<버전>/
@@ -120,7 +122,7 @@ Windows 셸·인덱스 도우미는 .NET Framework 4.x C# 컴파일러로 자동
 | `pnpm release` | 로컬 실행 폴더 생성 (`pnpm package`와 동일) |
 | `pnpm package:check` | 패키지 소스·필수 리소스·언어 파일 검증 |
 
-GitHub의 [Windows checks](https://github.com/junhyeok928/QuadFinder/actions/workflows/ci.yml)는 테스트·UI 검사·패키징을 수행합니다. 설치 및 업데이트 관련 코드는 향후 사용을 위해 보존하며 현재 기본 빌드에는 포함하지 않습니다.
+GitHub의 [Windows checks](https://github.com/junhyeok928/QuadFinder/actions/workflows/ci.yml)는 테스트·UI 검사·패키징을 수행합니다. 기본 빌드는 실행 폴더만 생성합니다. 승인된 배포 시 `pnpm wizard`로 설치 파일을 별도 제작하고 검증합니다.
 
 <details>
 <summary><strong>프로젝트 구조</strong></summary>

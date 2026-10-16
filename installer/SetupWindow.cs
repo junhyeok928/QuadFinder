@@ -27,7 +27,7 @@ class SetupWindow {
   using(Stream icon=Assembly.GetExecutingAssembly().GetManifestResourceStream("QuadFinder.SetupIcon")){var image=new BitmapImage();image.BeginInit();image.CacheOption=BitmapCacheOption.OnLoad;image.StreamSource=icon;image.EndInit();Get<Image>("AppIcon").Source=image;window.Icon=image;}
   target=SetupConfig.DefaultDirectory;
   if(!SetupConfig.Testing){using(RegistryKey key=Registry.CurrentUser.OpenSubKey(SetupConfig.RegistryKey)){string existing=key==null?null:key.GetValue("InstallLocation") as string;if(!String.IsNullOrEmpty(existing))target=existing;}}
-  installPath.Text=target;Text("VersionText","v"+SetupConfig.Version+" · 설치 미리보기");
+  installPath.Text=target;Text("VersionText","v"+SetupConfig.Version+"");
   Get<Grid>("TitleBar").MouseLeftButtonDown+=(s,e)=>{if(e.ChangedButton==MouseButton.Left)window.DragMove();};
   browse.Click+=(s,e)=>{using(var chooser=new System.Windows.Forms.FolderBrowserDialog()){chooser.Description="QuadFinder 설치 위치";chooser.SelectedPath=installPath.Text;if(chooser.ShowDialog()==System.Windows.Forms.DialogResult.OK)installPath.Text=chooser.SelectedPath;}};
   close.Click+=(s,e)=>window.Close();cancel.Click+=(s,e)=>{if(!busy&&!finished&&!welcome)Stage("WelcomePage");else window.Close();};window.Closing+=(s,e)=>{if(busy){e.Cancel=true;Text("ProgressDetail","설치가 진행 중입니다. 완료되면 닫을 수 있습니다.");}};
@@ -83,7 +83,7 @@ class SetupWindow {
   if(full.StartsWith(@"\\")||String.Equals(full.TrimEnd('\\'),Path.GetPathRoot(full).TrimEnd('\\'),StringComparison.OrdinalIgnoreCase))throw new Exception("로컬 드라이브의 전용 폴더를 선택해 주세요.");
   foreach(string forbidden in new[]{Environment.GetFolderPath(Environment.SpecialFolder.Windows),Environment.GetFolderPath(Environment.SpecialFolder.System),Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)})if(String.Equals(full.TrimEnd('\\'),forbidden.TrimEnd('\\'),StringComparison.OrdinalIgnoreCase))throw new Exception("전용 하위 폴더를 선택해 주세요.");
   for(string current=full;!String.IsNullOrEmpty(current);current=Path.GetDirectoryName(current)){if(Directory.Exists(current)&&(File.GetAttributes(current)&FileAttributes.ReparsePoint)!=0)throw new Exception("연결·정션을 통하지 않는 설치 위치를 선택해 주세요.");}
-  if(Directory.Exists(full)&&Directory.GetFileSystemEntries(full).Length>0&&!File.Exists(Path.Combine(full,"quadfinder-preview.json")))throw new Exception("비어 있는 폴더 또는 기존 QuadFinder 미리보기 설치 폴더를 선택해 주세요.");return full;
+  if(Directory.Exists(full)&&Directory.GetFileSystemEntries(full).Length>0&&!File.Exists(Path.Combine(full,"quadfinder-install.json"))&&!File.Exists(Path.Combine(full,"quadfinder-preview.json")))throw new Exception("비어 있는 폴더 또는 기존 QuadFinder 설치 폴더를 선택해 주세요.");return full;
  }
 #if TESTING
  void Capture(string filename){window.UpdateLayout();var image=new RenderTargetBitmap((int)window.ActualWidth,(int)window.ActualHeight,96,96,PixelFormats.Pbgra32);image.Render(window);var png=new PngBitmapEncoder();png.Frames.Add(BitmapFrame.Create(image));using(var output=File.Create(filename))png.Save(output);}

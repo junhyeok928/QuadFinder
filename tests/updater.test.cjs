@@ -7,3 +7,5 @@ test('failed update checks can retry and no update is a successful terminal stat
 
 
 test('preview wizard installations disable all automatic update network requests',()=>{const api=native(),updater=new AppUpdater({native:api,version:'0.10.0',installed:true,preview:true});assert.equal(updater.check().phase,'preview');updater.start();assert.equal(api.checks,0);assert.equal(api.feed,undefined);updater.stop();});
+
+test('NSIS beta installers use manual releases without contacting Squirrel feeds',()=>{const api=native(),updater=new AppUpdater({native:api,version:'0.14.0-beta.1',installed:true,manual:true});assert.equal(updater.check().phase,'manual');updater.start();assert.equal(api.checks,0);assert.equal(api.feed,undefined);updater.stop();});

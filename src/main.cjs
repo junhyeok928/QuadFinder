@@ -239,7 +239,7 @@ async function setup() {
   window.webContents.on('render-process-gone',()=>dialogs.clear());
   window.webContents.on('did-start-loading',()=>dialogs.clear());
   window.on('closed',()=>dialogs.clear());
-  updater=new AppUpdater({preview:app.isPackaged&&require('node:fs').existsSync(path.join(path.dirname(process.execPath),'quadfinder-preview.json')),native:require('electron').autoUpdater,version:app.getVersion(),installed:app.isPackaged&&require('node:fs').existsSync(updateExecutable(process.execPath)),canInstall:()=>!operations.active()&&!operations.running&&!undo.busy});
+  updater=new AppUpdater({manual:app.isPackaged&&require('node:fs').existsSync(path.join(path.dirname(process.execPath),'quadfinder-install.json')),preview:app.isPackaged&&require('node:fs').existsSync(path.join(path.dirname(process.execPath),'quadfinder-preview.json')),native:require('electron').autoUpdater,version:app.getVersion(),installed:app.isPackaged&&require('node:fs').existsSync(updateExecutable(process.execPath)),canInstall:()=>!operations.active()&&!operations.running&&!undo.busy});
   updater.on('update',value=>send('updater:changed',value));updater.start(process.argv.includes('--squirrel-firstrun'));
   window.on('close',event=>{
     if(operations.active()||undo.busy){

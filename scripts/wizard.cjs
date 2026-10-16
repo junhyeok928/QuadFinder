@@ -5,13 +5,13 @@ async function files(directory,prefix=''){const result=[];for(const item of awai
 async function compile({appDirectory,output,testing=false,profileRoot,registryKey}){
   const compiler=await require('./nsis-tool.cjs').compiler(),{version}=require('../package.json'),list=await files(appDirectory);
   const temporary=path.resolve('output','wizard-build-'+randomUUID());await fs.mkdir(temporary,{recursive:true});await fs.mkdir(path.dirname(output),{recursive:true});
-  const key=registryKey||'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\QuadFinderPreview';
+  const key=registryKey||'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\QuadFinder';
   const parents=new Set();for(const file of list){if(/[$"\r\n]/.test(file))throw new Error('Unsupported installer payload filename');let dir=path.dirname(file);while(dir!=='.'){parents.add(dir);dir=path.dirname(dir);}}
   const dirs=[...parents].sort((a,b)=>b.split(path.sep).length-a.split(path.sep).length);
-  const lines=[`!define VERSION ${quote(version)}`,`!define OUTPUT ${quote(output)}`,`!define ICON ${quote(path.resolve('assets/app-icon.ico'))}`,`!define WIZARD_BITMAP ${quote(path.resolve('assets/installer-wizard.bmp'))}`,`!define REG_KEY ${quote(key)}`];
+  const lines=[`!define VERSION ${quote(version)}`,`!define NUMERIC_VERSION ${quote(version.split('-')[0]+'.0')}`,`!define OUTPUT ${quote(output)}`,`!define ICON ${quote(path.resolve('assets/app-icon.ico'))}`,`!define WIZARD_BITMAP ${quote(path.resolve('assets/installer-wizard.bmp'))}`,`!define REG_KEY ${quote(key)}`];
   if(testing)lines.push('!define TESTING');
   // NSIS shell constants are deliberate here; filesystem inputs above are escaped separately.
-  lines.push(`!define DEFAULT_DIR "${testing?profileRoot+'\\app':'$LOCALAPPDATA\\Programs\\QuadFinderPreview'}"`,`!define MENU_DIR "${testing?profileRoot+'\\shortcuts':'$SMPROGRAMS\\QuadFinder 미리보기'}"`,`!define DESKTOP_LINK "${testing?profileRoot+'\\desktop.lnk':'$DESKTOP\\QuadFinder 미리보기.lnk'}"`,`!define DATA_DIR "${testing?profileRoot+'\\data':'$APPDATA\\QuadFinder'}"`);
+  lines.push(`!define DEFAULT_DIR "${testing?profileRoot+'\\app':'$LOCALAPPDATA\\Programs\\QuadFinder'}"`,`!define MENU_DIR "${testing?profileRoot+'\\shortcuts':'$SMPROGRAMS\\QuadFinder'}"`,`!define DESKTOP_LINK "${testing?profileRoot+'\\desktop.lnk':'$DESKTOP\\QuadFinder.lnk'}"`,`!define DATA_DIR "${testing?profileRoot+'\\data':'$APPDATA\\QuadFinder'}"`);
   lines.push('!macro InstallFiles');let last;
   for(const file of list){const dir=path.dirname(file);if(dir!==last){lines.push(`SetOutPath "$INSTDIR${dir==='.'?'':'\\'+dir}"`);last=dir;}lines.push(`File ${quote(path.join(appDirectory,file))}`);}lines.push('!macroend','!macro UninstallFiles');
   for(const dir of dirs)lines.push(`Push "$INSTDIR\\${dir}"`,'Call un.CheckDir');
