@@ -1,7 +1,7 @@
 {
   "name": "quadfinder",
   "productName": "QuadFinder",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "description": "빠른 파일 검색과 다중 패널 탐색을 결합한 Windows 파일 관리자",
   "main": "src/main.cjs",
@@ -14,7 +14,9 @@
     "smoke": "electron . --smoke-test",
     "package": "node scripts/package.cjs",
     "installer": "node scripts/installer.cjs",
-    "installer:check": "node scripts/check-installer.cjs"
+    "installer:check": "node scripts/check-installer.cjs",
+    "wizard": "node scripts/wizard.cjs",
+    "wizard:check": "node scripts/check-wizard.cjs"
   },
   "engines": {
     "node": ">=22"

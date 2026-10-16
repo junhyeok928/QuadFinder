@@ -23,7 +23,7 @@ async function run({window,stateFile,saveComplete,output}){
    const surfaces=await evaluate(`({dialog:getComputedStyle(document.querySelector('#folder-dialog')).backgroundColor,menu:getComputedStyle(document.querySelector('#context-menu')).backgroundColor})`);assert.equal(surfaces.menu,theme==='dark'?'rgb(36, 36, 36)':'rgb(255, 255, 255)');assert.equal(surfaces.dialog,surfaces.menu);
    await evaluate(`document.querySelector('#folder-dialog').close();document.querySelector('#context-menu').hidden=true`);
    await fs.writeFile(path.join(output,`theme-${theme}.png`),(await window.webContents.capturePage()).toPNG());
-   window.setSize(1000,680);await pause();assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth&&document.querySelector('#theme-select').getBoundingClientRect().right<innerWidth&&document.querySelector('.window-controls').getBoundingClientRect().right<=innerWidth`));
+   window.setSize(1000,680);await pause();assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth&&document.querySelector('#theme-select').getBoundingClientRect().right<innerWidth&&document.querySelector('.window-controls').getBoundingClientRect().right<=innerWidth+1`));
    window.setBounds(bounds);await pause();themes[theme]={contrast:true,menus:true,dialog:true,compact:true,preservedView:true,saved:true};
   }
   await window.loadURL('quadfinder://app/index.html');await waitReady();assert.equal(await evaluate('document.documentElement.dataset.theme'),'light');

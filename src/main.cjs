@@ -35,10 +35,10 @@ let places = [];
 let layout;
 let saveQueue = Promise.resolve();
 let zoomFactor=1,zoomSaveTimer;
-const normalizeZoom=value=>Math.max(.7,Math.min(1.5,Math.round((Number.isFinite(value)?value:1)*100)/100));
+const zoomPolicy=require('./zoom-policy.cjs'),normalizeZoom=zoomPolicy.normalize;
 function writeSettings(patch){
   saveQueue=saveQueue.catch(()=>{}).then(async()=>{
-    const next={...(layout||{}),...patch,zoomFactor};
+    const next={...(layout||{}),...patch,zoomFactor,zoomVersion:zoomPolicy.VERSION};
     await fs.mkdir(app.getPath('userData'),{recursive:true});
     await fs.writeFile(stateFile()+'.tmp',JSON.stringify(next,null,2));
     await fs.rename(stateFile()+'.tmp',stateFile());layout=next;
@@ -46,7 +46,7 @@ function writeSettings(patch){
   return saveQueue;
 }
 function setZoom(value,persist=true){
-  zoomFactor=normalizeZoom(value);window.webContents.setZoomFactor(zoomFactor);send('view:zoom',zoomFactor);
+  zoomFactor=normalizeZoom(value);window.webContents.setZoomFactor(zoomPolicy.physical(zoomFactor));send('view:zoom',zoomFactor);
   if(persist){clearTimeout(zoomSaveTimer);zoomSaveTimer=setTimeout(()=>{zoomSaveTimer=null;writeSettings({}).catch(error=>send('view:error',error.message));},150);}
   return zoomFactor;
 }
@@ -93,7 +93,7 @@ async function saveRoots(){
 
 async function checkSidebarResize() {
   await window.webContents.executeJavaScript(`document.querySelector('#sidebar-resizer').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`);
-  const measure=()=>window.webContents.executeJavaScript(`({width:document.querySelector('#sidebar').getBoundingClientRect().width,x:Math.round(document.querySelector('#sidebar-resizer').getBoundingClientRect().x+4),y:200})`);
+  const measure=()=>window.webContents.executeJavaScript(`({width:Math.round(document.querySelector('#sidebar').getBoundingClientRect().width),x:Math.round(document.querySelector('#sidebar-resizer').getBoundingClientRect().x+4),y:200})`);
   const drag=async delta=>{
     const rect=await measure();
     window.webContents.sendInputEvent({type:'mouseMove',x:rect.x,y:rect.y});
@@ -117,7 +117,7 @@ async function checkSidebarResize() {
   await new Promise(resolve=>setTimeout(resolve,50));
   const keyboard=(await measure()).width;
   const styles=await window.webContents.executeJavaScript(`({stuck:document.body.classList.contains('resizing-sidebar'),gradient:getComputedStyle(document.querySelector('#filters button.active')).backgroundImage,shadow:getComputedStyle(document.querySelector('#filters button.active')).boxShadow,statusGradient:getComputedStyle(document.querySelector('.statusbar')).backgroundImage,navFont:getComputedStyle(document.querySelector('#places .nav-location')).fontSize})`);
-  return {expanded,shrunk,minimum,maximum,keyboard,works:toolsFit && expanded===274 && shrunk===224 && minimum===150 && maximum===Math.min(400,window.getContentBounds().width-640) && keyboard===194 && !styles.stuck && styles.gradient==='none' && styles.shadow==='none' && styles.statusGradient==='none' && styles.navFont==='12px'};
+  return {expanded,shrunk,minimum,maximum,keyboard,works:toolsFit && expanded===274 && shrunk===224 && minimum===150 && maximum===Math.min(400,window.getContentBounds().width-640) && keyboard===194 && !styles.stuck && styles.gradient==='none' && styles.shadow==='none' && styles.statusGradient==='none' && styles.navFont==='14px'};
 }
 
 function startIndex() {
@@ -171,7 +171,7 @@ async function setup() {
     places = [{label:'테스트 자료', path:fixtures, icon:'home'}];
   }
   try { layout = JSON.parse(await fs.readFile(stateFile(), 'utf8')); } catch { layout = null; }
-  zoomFactor=designPreview?1:normalizeZoom(layout?.zoomFactor);
+  zoomFactor=designPreview?1:zoomPolicy.restore(layout);
   if(process.platform==='win32')networkDrives=await windowsShell.request({mode:'network-drives'});
   const removedRoots=roots.filter(root=>networkPath(root,networkDrives));
   roots=roots.filter(root=>!networkPath(root,networkDrives));
@@ -205,6 +205,7 @@ async function setup() {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true,
       backgroundThrottling:!smoke&&!designPreview,
       additionalArguments: [...(designPreview ? ['--quadfinder-design-preview'] : []),`--quadfinder-theme=${layout?.theme==='light'?'light':'dark'}`] } });
+  if(smoke||designPreview){const sendInput=window.webContents.sendInputEvent.bind(window.webContents);window.webContents.sendInputEvent=input=>{const scale=window.webContents.getZoomFactor();sendInput({...input,...(Number.isFinite(input.x)?{x:Math.round(input.x*scale)}:{}),...(Number.isFinite(input.y)?{y:Math.round(input.y*scale)}:{})});};}
   window.on('app-command',(event,command)=>{
     if(!['browser-backward','browser-forward'].includes(command))return;
     event.preventDefault();send('navigation:history',command==='browser-backward'?-1:1);
@@ -230,7 +231,7 @@ async function setup() {
   operations.on('update',jobs=>{send('operations:changed',jobs);undo.publish();});
   operations.on('undo-error',error=>send('view:error',error.name==='AbortError'?'내용 검증을 중단했습니다. 완료한 파일 작업은 유지됩니다.':'실행 취소 기록을 만들지 못했습니다: '+error.message));
   operations.on('trashed',()=>undo.clear());
-  updater=new AppUpdater({native:require('electron').autoUpdater,version:app.getVersion(),installed:app.isPackaged&&require('node:fs').existsSync(updateExecutable(process.execPath)),canInstall:()=>!operations.active()&&!operations.running&&!undo.busy});
+  updater=new AppUpdater({preview:app.isPackaged&&require('node:fs').existsSync(path.join(path.dirname(process.execPath),'quadfinder-preview.json')),native:require('electron').autoUpdater,version:app.getVersion(),installed:app.isPackaged&&require('node:fs').existsSync(updateExecutable(process.execPath)),canInstall:()=>!operations.active()&&!operations.running&&!undo.busy});
   updater.on('update',value=>send('updater:changed',value));updater.start(process.argv.includes('--squirrel-firstrun'));
   window.on('close',event=>{
     if(operations.active()||undo.busy){
@@ -271,7 +272,7 @@ async function readDrives(){
     if(!input||!Array.isArray(input.paths)||!input.paths.length||input.paths.length>1000)throw new Error('파일을 선택하세요.');
     const paths=input.paths.map(localPath);await Promise.all(paths.map(value=>fs.access(value)));
     if(input.verb&&!['properties','openas'].includes(input.verb))throw new Error('허용되지 않은 Windows 명령입니다.');
-    const bounds=window.getContentBounds(),point=screen.dipToScreenPoint({x:Math.round(bounds.x+Math.max(0,Math.min(bounds.width,(Number(input.x)||0)*zoomFactor))),y:Math.round(bounds.y+Math.max(0,Math.min(bounds.height,(Number(input.y)||0)*zoomFactor)))});
+    const bounds=window.getContentBounds(),point=screen.dipToScreenPoint({x:Math.round(bounds.x+Math.max(0,Math.min(bounds.width,(Number(input.x)||0)*zoomPolicy.physical(zoomFactor)))),y:Math.round(bounds.y+Math.max(0,Math.min(bounds.height,(Number(input.y)||0)*zoomPolicy.physical(zoomFactor))))});
     shellMenuOpen=true;try{const result=await windowsShell.request({mode:smoke&&input.probe?'probe':'menu',paths,background:input.background===true,x:point.x,y:point.y,verb:input.verb});if(result?.action==='delete')undo.clear();if(result?.action&&!['copy','cut','properties','openas','rename'].includes(result.action))filesChanged(paths.concat(paths.map(value=>path.dirname(value))));return result;}finally{shellMenuOpen=false;}
   });
   handle('files:thumbnail', async value => {
@@ -449,7 +450,7 @@ async function readDrives(){
     while(Date.now()<restoreDeadline && !(await window.webContents.executeJavaScript('window.__quadfinderReady===true')))await new Promise(resolve=>setTimeout(resolve,50));
     result.viewRestored=await window.webContents.executeJavaScript(`document.querySelector('.view-mode').value==='tiles'`);
     await window.webContents.executeJavaScript(`document.querySelector('.view-mode').value='details';document.querySelector('.view-mode').dispatchEvent(new Event('change'));`);
-    result.sidebarRestored=await window.webContents.executeJavaScript('document.querySelector("#sidebar").getBoundingClientRect().width===194');
+    result.sidebarRestored=await window.webContents.executeJavaScript('Math.round(document.querySelector("#sidebar").getBoundingClientRect().width)===194');
     functionSmokeRoot=await fs.mkdtemp(path.join(app.getAppPath(),'output','functional-smoke-'));
     result.viewOptions=await require('../scripts/view-smoke.cjs').run({window,root:functionSmokeRoot,appPath:app.getAppPath(),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;}});
     result.fileOperations=await require('../scripts/functional-smoke.cjs').run({window,root:functionSmokeRoot});

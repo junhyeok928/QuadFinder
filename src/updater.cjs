@@ -1,8 +1,9 @@
 const {EventEmitter}=require('node:events');
 const RELEASES='https://github.com/junhyeok928/QuadFinder/releases';
 class AppUpdater extends EventEmitter{
-  constructor({native,version,installed=false,canInstall=()=>true}){
+  constructor({native,version,installed=false,preview=false,canInstall=()=>true}){
     super();this.native=native;this.canInstall=canInstall;this.state={phase:installed?'idle':'portable',version,message:installed?'업데이트 확인':'자동 업데이트는 설치 버전에서 지원합니다.',releases:RELEASES};this.installed=installed;this.checking=false;
+    if(preview){this.installed=false;this.state={...this.state,phase:'preview',message:'출시 전 미리보기 · 자동 업데이트는 비활성화되어 있습니다.'};return;}
     if(!installed)return;
     native.setFeedURL({url:`https://update.electronjs.org/junhyeok928/QuadFinder/win32-x64/${version}`});
     native.on('checking-for-update',()=>this.set('checking','업데이트 확인 중…'));

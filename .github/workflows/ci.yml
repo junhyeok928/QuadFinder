@@ -23,6 +23,8 @@ jobs:
       - run: pnpm package
       - run: pnpm installer
       - run: pnpm installer:check
+      - run: pnpm wizard
+      - run: pnpm wizard:check
       - uses: actions/upload-artifact@v4
         with:
           name: QuadFinder-windows-x64
@@ -31,3 +33,7 @@ jobs:
         with:
           name: QuadFinder-installer-x64
           path: release/*/installer/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QuadFinder-preview-wizard-x64
+          path: release/*/wizard/*

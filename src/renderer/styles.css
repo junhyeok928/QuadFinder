@@ -367,3 +367,6 @@ nav .recent-location { height:42px; padding:5px 8px; gap:8px; }
 @media (max-height:650px) { .panes.layout-4 { grid-template-rows:minmax(220px,var(--top,1fr)) minmax(220px,var(--bottom,1fr)); } }
 .drive-meter i { background:var(--accent); }
 .column-resize:hover,.column-resize:focus { background:var(--selected); }
+
+/* Navigation primary labels share the file-list type scale. */
+nav button,nav .drive-button .drive-info,button.sidebar-heading,.add-location { font-size:14px; }
