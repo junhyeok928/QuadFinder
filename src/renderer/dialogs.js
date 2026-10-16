@@ -28,8 +28,17 @@
   get('.action-apply').hidden=!current.applyAll;get('.action-apply input').checked=false;get('.action-footer').replaceChildren();
   for(const [index,choice] of current.choices.entries()){const button=document.createElement('button');button.type='button';button.dataset.dialogAction=choice.action;button.disabled=choice.disabled===true;button.textContent=choice.label;button.title=choice.description||'';button.className=current.type==='danger'?'danger':index===current.choices.length-1?'primary':'';button.addEventListener('click',()=>respond(choice.action));get('.action-footer').append(button);}
   const cancel=document.createElement('button');cancel.type='button';cancel.dataset.dialogAction='cancel';cancel.textContent=current.cancelLabel||'취소';cancel.addEventListener('click',()=>respond('cancel'));if(!conflict)get('.action-footer').prepend(cancel);
-  dialog.showModal();if(conflict)get('.action-close').focus();else cancel.focus();
+  dialog.showModal();
+  const confirm=current.choices.length===1?get('.action-footer button:not([data-dialog-action="cancel"]):not(:disabled)'):null;
+  if(conflict)get('.action-close').focus();else (confirm||cancel).focus();
  }
+ dialog.addEventListener('keydown',event=>{
+  if(event.key!=='Enter'||event.isComposing)return;
+  if(event.repeat){event.preventDefault();return;}
+  const button=event.target.closest('button');
+  if(button){event.preventDefault();if(!button.disabled)button.click();return;}
+  if(current?.choices.length===1&&!current.choices[0].disabled){event.preventDefault();respond(current.choices[0].action);}
+ });
  dialog.addEventListener('cancel',event=>{event.preventDefault();respond('cancel');});get('.action-close').onclick=()=>respond('cancel');
  api.onDialog(request=>{queue.push(request);showNext();});api.onDialogCancel(id=>{const index=queue.findIndex(request=>request.id===id);if(index>=0)queue.splice(index,1);if(current?.id===id){current=null;dialog.close();previousFocus?.isConnected&&previousFocus.focus();showNext();}});
 })();
