@@ -196,7 +196,7 @@ async function setup() {
     if(url.hostname==='app'&&url.pathname==='/navigation-state.js')return net.fetch(pathToFileURL(path.join(__dirname,'navigation-state.cjs')).href);
     if(url.hostname==='app'&&url.pathname==='/change-policy.js')return net.fetch(pathToFileURL(path.join(__dirname,'change-policy.cjs')).href);
     if(url.hostname==='app'&&url.pathname==='/view-options.js')return net.fetch(pathToFileURL(path.join(__dirname,'view-options.cjs')).href);
-    const assets = new Set(['index.html', 'styles.css', 'themes.css', 'theme-init.js', 'renderer.js', 'features.js', 'view-ui.js', 'sidebar.js', 'icons.js', 'preview.js']);
+    const assets = new Set(['index.html', 'styles.css', 'themes.css', 'theme-init.js', 'renderer.js', 'features.js', 'marquee.js', 'view-ui.js', 'sidebar.js', 'icons.js', 'preview.js']);
     const file = url.pathname.slice(1) || 'index.html';
     if (url.hostname !== 'app' || !assets.has(file)) return new Response('Not found', { status: 404 });
     return net.fetch(pathToFileURL(path.join(__dirname, 'renderer', file)).href);
@@ -459,6 +459,7 @@ async function readDrives(){
     result.refresh=await require('../scripts/refresh-smoke.cjs').run({window,root:functionSmokeRoot,notify:paths=>send('files:changed',paths),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},networkRoot:process.env.QUADFINDER_TEST_NETWORK_ROOT,stateFile:stateFile(),rootsFile:rootsFile()});
     result.sidebar=await require('../scripts/sidebar-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile(),appPath:app.getAppPath()});
     result.recent=await require('../scripts/recent-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile()});
+    result.marquee=await require('../scripts/marquee-smoke.cjs').run({window,root:functionSmokeRoot});
     result.mouseHistory=await require('../scripts/history-smoke.cjs').run({window,root:functionSmokeRoot});
     result.undo=await require('../scripts/undo-smoke.cjs').run({window,root:functionSmokeRoot});
     await window.webContents.executeJavaScript(`Promise.all(state.panes.map((_pane,index)=>navigate(index,${JSON.stringify(roots[0])})))`);

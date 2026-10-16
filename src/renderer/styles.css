@@ -370,3 +370,6 @@ nav .recent-location { height:42px; padding:5px 8px; gap:8px; }
 
 /* Navigation primary labels share the file-list type scale. */
 nav button,nav .drive-button .drive-info,button.sidebar-heading,.add-location { font-size:14px; }
+
+.selection-marquee{position:fixed;z-index:10000;pointer-events:none;border:1px solid var(--accent);background:color-mix(in srgb,var(--accent) 18%,transparent);box-sizing:border-box}
+body.selecting-files,body.selecting-files *{user-select:none!important;cursor:default!important}

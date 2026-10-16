@@ -4,11 +4,17 @@ Everything의 빠른 파일명 검색과 Q-Dir의 다중 패널 탐색 경험을
 
 ![확정한 디자인 시안](docs/design-concept.png)
 
-## 현재 구현 — v0.10.0
+## 현재 구현 — v0.11.0
 
 네비게이션의 주요 글자는 파일 이름과 같은 **14px**입니다. 이전 **90% 크기를 새 100% 기본값**으로 사용합니다. Ctrl+휠과 Ctrl+0은 새 기준으로 동작하고 배율은 저장합니다. 이전 기본 100% 및 90% 설정은 새 기본값으로 옮기며, 그 외 사용자 배율은 가능한 한 기존 크기를 유지하도록 변환합니다.
 
-### 출시 전 설치 마법사
+### 로컬 실행 빌드
+
+`pnpm release` 또는 `pnpm package`는 `release/0.11.0`에 실행 폴더와 portable ZIP을 만듭니다. 파일 목록의 빈 영역을 드래그해 여러 파일을 선택할 수 있고 Ctrl은 선택 반전, Shift는 추가, Esc는 취소입니다. 한국어·영어 리소스만 포함하며 개발 파일은 배포에서 제외합니다.
+
+설치 마법사·인스톨러는 다시 요청하기 전까지 제작하지 않습니다. GitHub Release도 생성하지 않습니다. 아래 설치 제작 코드는 향후 사용을 위해 보존합니다.
+
+### 보존된 설치 마법사 제작 코드
 
 `pnpm package` 후 `pnpm wizard`로 `release/0.10.0/wizard/QuadFinder-0.10.0-Preview-Setup.exe`를 만듭니다. 공개 릴리스는 생성하지 않습니다. 한글 환영 화면 → 구성 요소/바로가기 → 설치 위치 → 설치 진행 → 완료/선택 실행을 제공합니다. 기본 위치는 `%LOCALAPPDATA%\Programs\QuadFinderPreview`이고 기존 Squirrel 설치와 별도입니다. 미리보기 설치본은 자동 업데이트를 확인하지 않습니다.
 
@@ -122,8 +128,7 @@ pnpm test       # 실제 파일 시스템 및 검색 워커 테스트
 pnpm smoke      # 실제 UI 선택→복사→충돌→이름 변경→드래그 이동→Windows 휴지통 검증
 pnpm preview    # http://127.0.0.1:4173 디자인 확인용, 예시 데이터
 pnpm design:check # 시안 크기와 작은 창의 실제 Electron 화면 캡처, 예시 데이터
-pnpm package    # release/0.10.0/QuadFinder-win32-x64/QuadFinder.exe
-pnpm installer  # release/0.10.0/installer/QuadFinder-0.10.0-win32-x64-Setup.exe
+pnpm release    # release/0.11.0 실행 폴더 및 portable ZIP
 ```
 
 ## 보호 폴더 인덱싱
@@ -192,6 +197,6 @@ pnpm installer  # release/0.10.0/installer/QuadFinder-0.10.0-win32-x64-Setup.exe
 
 설치 버전은 시작 후 및 6시간 간격으로 업데이트를 확인합니다. 새 버전을 받으면 우측 상단 `재시작하여 업데이트`를 눌러 적용하며, 파일 작업이나 실행 취소가 진행 중이면 적용하지 않습니다. 포터블 버전의 `업데이트` 버튼은 GitHub 릴리스 페이지를 엽니다.
 
-업데이트 배포에는 **공개된 GitHub Release**가 필요합니다. `Prepare Windows release` 작업을 수동 실행하면 버전을 검증하고 테스트·패키징 후 설치 파일, `.nupkg`, `RELEASES`, `SHA256SUMS.txt`를 초안 릴리스에 올립니다. 확인 후 릴리스를 게시하면 Electron 공식 업데이트 서비스가 해당 공개 배포를 제공합니다. 초안은 자동 업데이트에 제공되지 않습니다. 첫 공개 릴리스가 없으면 자동 업데이트 서버가 새 버전을 제공하지 못합니다. 업데이트 상태 전환·작업 중 설치 차단은 자동 테스트로 검증하며, 공개된 두 버전 간 실제 교체 검증은 별도 단계입니다.
+현재는 로컬 portable 빌드만 제공합니다. GitHub 작업도 ZIP 아티팩트만 생성하며 설치 파일 제작이나 GitHub Release 게시를 수행하지 않습니다. 기존 설치본의 업데이트 코드는 향후 배포를 위해 보존합니다.
 
 공개 저장소이며 배포 라이선스는 아직 지정하지 않았습니다.

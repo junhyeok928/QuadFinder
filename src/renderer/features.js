@@ -42,6 +42,7 @@ function bindRows(index,rows,sorted){
 function bindPaneFeatures(index){
   const pane=state.panes[index],element=pane.element,tab=tabOf(pane),table=element.querySelector('.file-table');
   table.setAttribute('aria-multiselectable','true');
+  bindMarquee(index,table,tab);
   element.querySelectorAll('[data-file-action]').forEach(button=>button.onclick=()=>fileAction(button.dataset.fileAction,index));
   table.oncontextmenu=event=>{event.preventDefault();setActive(index);event.shiftKey&&!tab.search?nativeMenu(index,event.clientX,event.clientY,true):showFileMenu(index,event.clientX,event.clientY,true);};
   table.onclick=event=>{if(!event.target.closest('.file-row,.columns,.load-more,.group-heading')){selection(tab).clear();tab.selected=null;updateSelection(index);}};
@@ -118,7 +119,7 @@ function queueRefresh(paths=null){
 }
 async function flushRefresh(){
   if(!refreshFocused)return;
-  if(refreshRunning||document.querySelector('dialog[open],.path-input:not([hidden]):focus,#context-menu:not([hidden])')||currentJobs.some(activeJob)||state.panes.some((pane,i)=>i<state.layout&&tabOf(pane).loading)){refreshTimer=setTimeout(flushRefresh,250);return;}
+  if(document.body.classList.contains('selecting-files')||refreshRunning||document.querySelector('dialog[open],.path-input:not([hidden]):focus,#context-menu:not([hidden])')||currentJobs.some(activeJob)||state.panes.some((pane,i)=>i<state.layout&&tabOf(pane).loading)){refreshTimer=setTimeout(flushRefresh,250);return;}
   const paths=pendingRefreshAll?null:[...pendingRefreshPaths],search=pendingSearch;
   pendingRefreshAll=false;pendingRefreshPaths.clear();pendingSearch=false;refreshRunning=true;
   try{await Promise.all(state.panes.map((pane,i)=>i<state.layout&&!tabOf(pane).search&&ChangePolicy.affects(tabOf(pane).path,paths)?refreshTab(i):Promise.resolve()));if(search&&refreshFocused)await refreshSearch();}
