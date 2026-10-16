@@ -14,7 +14,7 @@ RequestExecutionLevel user
 ManifestDPIAware true
 SetFont "맑은 고딕" 9
 BrandingText "QuadFinder ${VERSION} · 미리보기"
-SetCompressor /SOLID lzma
+SetCompressor lzma
 SetCompressorDictSize 32
 SetOverwrite on
 VIProductVersion "${VERSION}.0"
@@ -73,6 +73,7 @@ Function .onInit
   StrCpy $ShortcutStart 1
   StrCpy $ShortcutDesktop 0
   StrCpy $RunNow 0
+  Call ParseShortcutOptions
   Call EnsureClosed
 FunctionEnd
 
@@ -149,6 +150,21 @@ SectionEnd
 Section /o "바탕 화면 바로가기" Desktop
   CreateShortCut "${DESKTOP_LINK}" "$INSTDIR\QuadFinder.exe"
 SectionEnd
+Function ParseShortcutOptions
+  ${GetParameters} $0
+  ClearErrors
+  ${GetOptions} $0 "/NOSTARTMENU" $1
+  ${IfNot} ${Errors}
+    StrCpy $ShortcutStart 0
+    !insertmacro UnselectSection ${StartMenu}
+  ${EndIf}
+  ClearErrors
+  ${GetOptions} $0 "/DESKTOP" $1
+  ${IfNot} ${Errors}
+    StrCpy $ShortcutDesktop 1
+    !insertmacro SelectSection ${Desktop}
+  ${EndIf}
+FunctionEnd
 Function OptionsPage
   !insertmacro MUI_HEADER_TEXT "QuadFinder 설치" "설치 위치와 바로가기를 선택하세요."
   nsDialogs::Create 1018

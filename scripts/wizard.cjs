@@ -21,8 +21,11 @@ async function compile({appDirectory,output,testing=false,profileRoot,registryKe
   const config=path.join(temporary,'config.nsh');await fs.writeFile(config,'\ufeff'+lines.join('\r\n'));
   const template=await fs.readFile(path.resolve('installer/quadfinder.nsi')),frozen=path.join(temporary,'setup.nsi');await fs.writeFile(frozen,template);
   const scriptSha256=createHash('sha256').update(template).digest('hex'),builderSha256=createHash('sha256').update(await fs.readFile(__filename)).digest('hex');
+  const backend=path.join(temporary,'SetupEngine.exe');
+  await fs.writeFile(config,'\ufeff'+lines.join('\r\n').replace('!define OUTPUT '+quote(output),'!define OUTPUT '+quote(backend)));
   execFileSync(compiler,['/V2','/DCONFIG='+config,frozen],{windowsHide:true,stdio:'pipe',timeout:600000});
-  return {version,files:list,registryKey:key,scriptSha256,builderSha256};
+  const frontend=await require('./setup-window.cjs').wrap({backend,output,testing,profileRoot,registryKey:key});
+  return {version,files:list,registryKey:key,scriptSha256,builderSha256,...frontend,engine:backend};
 }
-async function build(){const {version}=require('../package.json'),appDirectory=path.resolve(`release/${version}/QuadFinder-win32-x64`),directory=path.resolve(`release/${version}/wizard`),output=path.join(directory,'QuadFinder-Setup.exe');const manifest=await compile({appDirectory,output});const digest=createHash('sha256').update(await fs.readFile(output)).digest('hex');await fs.writeFile(path.join(directory,'SHA256SUMS.txt'),`${digest}  ${path.basename(output)}\n`);await fs.writeFile(path.join(directory,'manifest.json'),JSON.stringify(manifest,null,2));console.log(output);}
+async function build(){const {version}=require('../package.json'),appDirectory=path.resolve(`release/${version}/QuadFinder-win32-x64`),directory=path.resolve(`release/${version}/wizard`),output=path.join(directory,'QuadFinder-Setup.exe');const {engine,...manifest}=await compile({appDirectory,output});const digest=createHash('sha256').update(await fs.readFile(output)).digest('hex');await fs.writeFile(path.join(directory,'SHA256SUMS.txt'),`${digest}  ${path.basename(output)}\n`);await fs.writeFile(path.join(directory,'manifest.json'),JSON.stringify(manifest,null,2));console.log(output);}
 module.exports={compile};if(require.main===module)build().catch(error=>{console.error(error.stdout?.toString()||error);process.exitCode=1;});

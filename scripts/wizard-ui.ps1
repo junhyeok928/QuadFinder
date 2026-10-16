@@ -1,4 +1,5 @@
-﻿param([Parameter(Mandatory=$true)][string]$Setup,[Parameter(Mandatory=$true)][string]$Output)
+﻿# Legacy native NSIS backend preview helper. The modern front end is checked by check-wizard.cjs.
+param([Parameter(Mandatory=$true)][string]$Setup,[Parameter(Mandatory=$true)][string]$Output)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName System.Drawing
 Add-Type @'
