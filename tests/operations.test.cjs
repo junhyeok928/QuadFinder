@@ -97,12 +97,12 @@ test('cancel during overwrite staging retains destination and source',()=>fixtur
  queue.on('update',jobs=>{if(!cancelled&&jobs[0].bytes){cancelled=true;queue.cancel(jobs[0].id);}});const result=await perform(queue,{kind:'move',sources:[source],destination:dst});assert.equal(result.status,'cancelled');assert.equal(await fs.readFile(target,'utf8'),'old');assert.equal((await fs.stat(source)).size,3*1024*1024);assert.deepEqual(await fs.readdir(dst),['a.bin']);
 }));
 test('publication failure restores previous target without deleting it during cleanup',()=>fixture(async({src,dst})=>{
- const source=path.join(src,'a.txt'),target=path.join(dst,'a.txt');await fs.writeFile(source,'new');await fs.writeFile(target,'old');const original=fs.link;
- fs.link=async(from,to)=>{if(to===target)throw Object.assign(new Error('publication failed'),{code:'EIO'});return original(from,to);};
+ const source=path.join(src,'a.txt'),target=path.join(dst,'a.txt');await fs.writeFile(source,'new');await fs.writeFile(target,'old');const original=fs.link,canonical=path.join(await fs.realpath(dst),'a.txt').toLowerCase();
+ fs.link=async(from,to)=>{if(to.toLowerCase()===canonical)throw Object.assign(new Error('publication failed'),{code:'EIO'});return original(from,to);};
  try{const queue=new OperationQueue({trash:async()=>assert.fail(),conflict:async()=> 'overwrite'});const result=await perform(queue,{kind:'copy',sources:[source],destination:dst});assert.equal(result.status,'partial');assert.equal(await fs.readFile(target,'utf8'),'old');assert.deepEqual(await fs.readdir(dst),['a.txt']);}finally{fs.link=original;}
 }));
 test('a raced destination is never replaced and the previous target remains recoverable',()=>fixture(async({src,dst})=>{
- const source=path.join(src,'a.txt'),target=path.join(dst,'a.txt');await fs.writeFile(source,'new');await fs.writeFile(target,'old');const original=fs.link;
- fs.link=async(from,to)=>{if(to===target)await fs.writeFile(target,'raced','utf8');return original(from,to);};
+ const source=path.join(src,'a.txt'),target=path.join(dst,'a.txt');await fs.writeFile(source,'new');await fs.writeFile(target,'old');const original=fs.link,canonical=path.join(await fs.realpath(dst),'a.txt').toLowerCase();
+ fs.link=async(from,to)=>{if(to.toLowerCase()===canonical)await fs.writeFile(target,'raced','utf8');return original(from,to);};
  try{const queue=new OperationQueue({trash:async()=>assert.fail(),conflict:async()=> 'overwrite'});const result=await perform(queue,{kind:'copy',sources:[source],destination:dst});assert.equal(result.status,'partial');assert.equal(await fs.readFile(target,'utf8'),'raced');const backup=(await fs.readdir(dst)).find(name=>name.startsWith('.quadfinder-'));assert.ok(backup);assert.equal(await fs.readFile(path.join(dst,backup,'previous','a.txt'),'utf8'),'old');}finally{fs.link=original;}
 }));
