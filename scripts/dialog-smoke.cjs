@@ -11,9 +11,12 @@ async function run({window,root,output}){
  try{
   for(const theme of ['dark','light']){
    await evaluate(`document.documentElement.dataset.theme='${theme}'`);
+   await evaluate(`document.querySelector('#folder-name').value='';document.querySelector('#folder-dialog').showModal();`);await pause();
+   await fs.writeFile(path.join(output,`dialog-folder-${theme}.png`),(await window.webContents.capturePage()).toPNG());
+   await evaluate(`document.querySelector('#folder-dialog button[value="cancel"]').click();`);assert.equal(await evaluate(`document.querySelector('#folder-dialog').open`),false,'empty form can cancel');
    const file=path.join(source,theme+'.txt'),target=path.join(destination,theme+'.txt');await fs.writeFile(file,'new');await fs.writeFile(target,'old');
    await start({kind:'copy',sources:[file],destination});await wait(`document.querySelector('#action-dialog').open`);
-   assert.deepEqual(await evaluate(`[...document.querySelectorAll('.action-choice strong')].map(e=>e.textContent)`),['둘 다 유지','건너뛰기','덮어쓰기']);
+   assert.deepEqual(await evaluate(`[...document.querySelectorAll('.action-footer button')].map(e=>e.textContent)`),['둘 다 유지','건너뛰기','덮어쓰기']);
    assert.equal(await evaluate(`document.activeElement.dataset.dialogAction`),'cancel');
    await fs.writeFile(path.join(output,`dialog-conflict-${theme}.png`),(await window.webContents.capturePage()).toPNG());
    await click(theme==='dark'?'keep-both':'overwrite');await jobDone();assert.equal(await fs.readFile(target,'utf8'),theme==='dark'?'old':'new');
@@ -24,7 +27,7 @@ async function run({window,root,output}){
   const executable=path.join(source,'never-run.cmd');await fs.writeFile(executable,'@exit /b 0');await evaluate(`window.openResult=null;void call(api.open(${JSON.stringify(executable)})).then(value=>window.openResult=value);`);await wait(`document.querySelector('#action-dialog').open`);await fs.writeFile(path.join(output,'dialog-open.png'),(await window.webContents.capturePage()).toPNG());await click('cancel');await wait('window.openResult===false');
   await start({kind:'trash',sources:[file]});await wait(`document.querySelector('#action-dialog').open`);await fs.writeFile(path.join(output,'dialog-delete.png'),(await window.webContents.capturePage()).toPNG());window.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});await wait(`window.dialogResult==='returned'`);assert.equal(await evaluate('window.dialogJob'),null);assert.equal(await fs.readFile(file,'utf8'),'new');
   await start({kind:'trash',sources:[file]});await wait(`document.querySelector('#action-dialog').open`);await click('trash');await jobDone();await assert.rejects(fs.stat(file),{code:'ENOENT'});
-  return {passed:true,compactFits:true,themes:['dark','light'],keepBoth:true,skip:true,overwrite:true,applyAll:true,executableCancel:true,deleteCancel:true,deleteConfirm:true};
+  return {passed:true,compactFits:true,formCancel:true,themes:['dark','light'],keepBoth:true,skip:true,overwrite:true,applyAll:true,executableCancel:true,deleteCancel:true,deleteConfirm:true};
  }finally{await evaluate(`document.documentElement.dataset.theme=${JSON.stringify(original)}`);}
 }
 module.exports={run};

@@ -7,6 +7,7 @@ async function run({window,root}){
   const evaluate=code=>window.webContents.executeJavaScript(code),pause=()=>new Promise(resolve=>setTimeout(resolve,100));
   await evaluate(`applyLayout(1);navigate(0,${JSON.stringify(folder)})`);
   const drag=async(modifiers=[],cancel=false)=>{
+    await evaluate(`state.panes[0].element.querySelector('.file-table').scrollTop=0;new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
     const points=await evaluate(`(()=>{const t=state.panes[0].element.querySelector('.file-table');t.scrollTop=0;const r=t.getBoundingClientRect(),rows=[...t.querySelectorAll('.file-row')],first=rows[0].getBoundingClientRect(),third=rows[2].getBoundingClientRect();return {x:Math.round(r.right-25),y:Math.round(first.top+3),endX:Math.round(r.left+20),endY:Math.round(third.bottom-3)};})()`);
     window.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,x:points.x,y:points.y,modifiers});
     window.webContents.sendInputEvent({type:'mouseMove',x:points.endX,y:points.endY,modifiers:['leftButtonDown',...modifiers]});await pause();
