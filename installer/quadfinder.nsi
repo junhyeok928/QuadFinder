@@ -4,6 +4,7 @@
 !include "FileFunc.nsh"
 !include "LogicLib.nsh"
 !include "x64.nsh"
+!include "Sections.nsh"
 !include "${CONFIG}"
 Name "QuadFinder 미리보기"
 OutFile "${OUTPUT}"
@@ -12,7 +13,7 @@ InstallDirRegKey HKCU "${REG_KEY}" "InstallLocation"
 RequestExecutionLevel user
 ManifestDPIAware true
 SetFont "맑은 고딕" 9
-BrandingText "QuadFinder · 출시 전 미리보기"
+BrandingText "QuadFinder ${VERSION} · 미리보기"
 SetCompressor /SOLID lzma
 SetCompressorDictSize 32
 SetOverwrite on
@@ -24,31 +25,32 @@ VIAddVersionKey /LANG=1042 "LegalCopyright" "QuadFinder contributors"
 Icon "${ICON}"
 UninstallIcon "${ICON}"
 !define MUI_ABORTWARNING
-!define MUI_TEXTCOLOR "222222"
-!define MUI_BGCOLOR "FFFFFF"
+!define MUI_TEXTCOLOR "223044"
+!define MUI_BGCOLOR "F4F6F9"
 !define MUI_ICON "${ICON}"
 !define MUI_UNICON "${ICON}"
-!define MUI_WELCOMEFINISHPAGE_BITMAP "${WIZARD_BITMAP}"
-!define MUI_UNWELCOMEFINISHPAGE_BITMAP "${WIZARD_BITMAP}"
-!define MUI_WELCOMEPAGE_TITLE "QuadFinder 설치 마법사"
-!define MUI_WELCOMEPAGE_TEXT "빠른 파일 검색과 다중 패널 탐색을 위한 QuadFinder를 설치합니다.$\r$\n$\r$\n버전 ${VERSION} · 출시 전 미리보기$\r$\n$\r$\n설치 위치와 바로가기를 선택할 수 있습니다. 문서와 개인 파일은 변경하지 않습니다.$\r$\n$\r$\n이 빌드는 자동 업데이트를 확인하지 않습니다."
-!define MUI_FINISHPAGE_RUN "$INSTDIR\QuadFinder.exe"
-!define MUI_FINISHPAGE_RUN_NOTCHECKED
-!define MUI_FINISHPAGE_RUN_TEXT "QuadFinder 실행"
-!insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_COMPONENTS
-!define MUI_DIRECTORYPAGE_TEXT_TOP "설치할 폴더를 선택하세요. 비어 있는 전용 폴더 또는 기존 QuadFinder 미리보기 폴더를 사용할 수 있습니다."
-!insertmacro MUI_PAGE_DIRECTORY
+!define MUI_INSTFILESPAGE_HEADER_TEXT "QuadFinder 설치 중"
+!define MUI_INSTFILESPAGE_HEADER_SUBTEXT "필요한 파일을 설치하고 있습니다. 잠시 기다려 주세요."
+!define MUI_INSTFILESPAGE_FINISHHEADER_TEXT "설치를 완료했습니다"
+!define MUI_INSTFILESPAGE_FINISHHEADER_SUBTEXT "다음을 눌러 설치 결과를 확인하세요."
+Page custom OptionsPage OptionsPageLeave
 !insertmacro MUI_PAGE_INSTFILES
-!insertmacro MUI_PAGE_FINISH
-!insertmacro MUI_UNPAGE_WELCOME
-!insertmacro MUI_UNPAGE_CONFIRM
+Page custom FinishPage FinishPageLeave
 UninstPage custom un.DataPage un.DataPageLeave
 !insertmacro MUI_UNPAGE_INSTFILES
-!insertmacro MUI_UNPAGE_FINISH
+UninstPage custom un.FinishPage
 !insertmacro MUI_LANGUAGE "Korean"
 Var PurgeData
 Var DataCheck
+Var OptionsDialog
+Var PathInput
+Var BrowseButton
+Var StartCheck
+Var DesktopCheck
+Var ShortcutStart
+Var ShortcutDesktop
+Var RunCheck
+Var RunNow
 
 Function EnsureClosed
 !ifndef TESTING
@@ -68,6 +70,9 @@ Function .onInit
     Abort
   ${EndIf}
   SetShellVarContext current
+  StrCpy $ShortcutStart 1
+  StrCpy $ShortcutDesktop 0
+  StrCpy $RunNow 0
   Call EnsureClosed
 FunctionEnd
 
@@ -144,11 +149,104 @@ SectionEnd
 Section /o "바탕 화면 바로가기" Desktop
   CreateShortCut "${DESKTOP_LINK}" "$INSTDIR\QuadFinder.exe"
 SectionEnd
-!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
-!insertmacro MUI_DESCRIPTION_TEXT ${Main} "파일 검색, 다중 패널 탐색과 제거 프로그램을 설치합니다."
-!insertmacro MUI_DESCRIPTION_TEXT ${StartMenu} "현재 사용자 시작 메뉴에 실행 및 제거 바로가기를 만듭니다."
-!insertmacro MUI_DESCRIPTION_TEXT ${Desktop} "현재 사용자 바탕 화면에 실행 바로가기를 만듭니다."
-!insertmacro MUI_FUNCTION_DESCRIPTION_END
+Function OptionsPage
+  !insertmacro MUI_HEADER_TEXT "QuadFinder 설치" "설치 위치와 바로가기를 선택하세요."
+  nsDialogs::Create 1018
+  Pop $OptionsDialog
+  SetCtlColors $OptionsDialog 223044 F4F6F9
+  ${NSD_CreateLabel} 0 0 100% 22u "빠른 파일 검색과 다중 패널 탐색을 위한 파일 관리자입니다."
+  Pop $0
+  SetCtlColors $0 5C6D82 F4F6F9
+  ${NSD_CreateLabel} 0 26u 100% 12u "설치 위치"
+  Pop $0
+  SetCtlColors $0 223044 F4F6F9
+  ${NSD_CreateDirRequest} 0 42u 238u 14u "$INSTDIR"
+  Pop $PathInput
+  ${NSD_CreateBrowseButton} 244u 41u 56u 16u "찾아보기…"
+  Pop $BrowseButton
+  ${NSD_OnClick} $BrowseButton ChooseDirectory
+  ${NSD_CreateLabel} 0 66u 100% 12u "바로가기"
+  Pop $0
+  SetCtlColors $0 223044 F4F6F9
+  ${NSD_CreateCheckbox} 0 82u 100% 12u "시작 메뉴에 추가"
+  Pop $StartCheck
+  SetCtlColors $StartCheck 223044 F4F6F9
+  ${NSD_SetState} $StartCheck $ShortcutStart
+  ${NSD_CreateCheckbox} 0 100u 100% 12u "바탕 화면에 바로가기 만들기"
+  Pop $DesktopCheck
+  SetCtlColors $DesktopCheck 223044 F4F6F9
+  ${NSD_SetState} $DesktopCheck $ShortcutDesktop
+  ${NSD_CreateLabel} 0 118u 100% 14u "현재 사용자 전용 설치 · 미리보기 자동 업데이트 꺼짐"
+  Pop $0
+  SetCtlColors $0 5C6D82 F4F6F9
+  GetDlgItem $0 $HWNDPARENT 1
+  ${NSD_SetText} $0 "설치"
+  nsDialogs::Show
+FunctionEnd
+Function ChooseDirectory
+  Pop $0
+  ${NSD_GetText} $PathInput $INSTDIR
+  nsDialogs::SelectFolderDialog "QuadFinder를 설치할 폴더를 선택하세요" "$INSTDIR"
+  Pop $0
+  StrCmp $0 error done
+  ${NSD_SetText} $PathInput $0
+  done:
+FunctionEnd
+Function OptionsPageLeave
+  ${NSD_GetText} $PathInput $INSTDIR
+  Call ValidateDirectory
+  IfErrors 0 valid
+  MessageBox MB_OK|MB_ICONEXCLAMATION "비어 있는 전용 폴더 또는 기존 QuadFinder 미리보기 폴더를 선택하세요."
+  Abort
+  valid:
+  ${NSD_GetState} $StartCheck $ShortcutStart
+  ${NSD_GetState} $DesktopCheck $ShortcutDesktop
+  ${If} $ShortcutStart == 1
+    !insertmacro SelectSection ${StartMenu}
+  ${Else}
+    !insertmacro UnselectSection ${StartMenu}
+  ${EndIf}
+  ${If} $ShortcutDesktop == 1
+    !insertmacro SelectSection ${Desktop}
+  ${Else}
+    !insertmacro UnselectSection ${Desktop}
+  ${EndIf}
+FunctionEnd
+Function FinishPage
+  !insertmacro MUI_HEADER_TEXT "설치가 완료되었습니다" "QuadFinder를 사용할 준비가 되었습니다."
+  nsDialogs::Create 1018
+  Pop $OptionsDialog
+  SetCtlColors $OptionsDialog 223044 F4F6F9
+  ${NSD_CreateLabel} 0 5u 100% 20u "QuadFinder ${VERSION}"
+  Pop $0
+  SetCtlColors $0 223044 F4F6F9
+  ${NSD_CreateLabel} 0 33u 100% 12u "설치된 위치"
+  Pop $0
+  SetCtlColors $0 5C6D82 F4F6F9
+  ${NSD_CreateText} 0 50u 100% 14u "$INSTDIR"
+  Pop $0
+  SendMessage $0 ${EM_SETREADONLY} 1 0
+  ${NSD_CreateCheckbox} 0 82u 100% 14u "닫은 뒤 QuadFinder 실행"
+  Pop $RunCheck
+  SetCtlColors $RunCheck 223044 F4F6F9
+  ${NSD_SetState} $RunCheck 0
+  ${NSD_CreateLabel} 0 110u 100% 20u "설정은 보존됩니다. 앱 제거는 Windows의 설치된 앱에서 할 수 있습니다."
+  Pop $0
+  SetCtlColors $0 5C6D82 F4F6F9
+  GetDlgItem $0 $HWNDPARENT 1
+  ${NSD_SetText} $0 "닫기"
+  GetDlgItem $0 $HWNDPARENT 2
+  ShowWindow $0 ${SW_HIDE}
+  GetDlgItem $0 $HWNDPARENT 3
+  ShowWindow $0 ${SW_HIDE}
+  nsDialogs::Show
+FunctionEnd
+Function FinishPageLeave
+  ${NSD_GetState} $RunCheck $RunNow
+  ${If} $RunNow == 1
+    Exec '"$INSTDIR\QuadFinder.exe"'
+  ${EndIf}
+FunctionEnd
 
 Function un.onInit
   SetShellVarContext current
@@ -166,14 +264,22 @@ Function un.onInit
 !endif
 FunctionEnd
 Function un.DataPage
-  !insertmacro MUI_HEADER_TEXT "사용자 데이터" "제거할 데이터를 선택하세요."
+  !insertmacro MUI_HEADER_TEXT "QuadFinder 제거" "프로그램과 바로가기를 제거합니다."
   nsDialogs::Create 1018
-  Pop $0
+  Pop $OptionsDialog
+  SetCtlColors $OptionsDialog 223044 F4F6F9
   ${NSD_CreateLabel} 0 0 100% 42u "프로그램 파일과 바로가기를 제거하며 설정은 기본 보존합니다. 설정은 다른 QuadFinder 설치본과 공유될 수 있습니다. 문서·사진·즐겨찾기의 실제 폴더는 삭제하지 않습니다."
   Pop $0
-  ${NSD_CreateCheckbox} 0 48u 100% 20u "설정·즐겨찾기·검색 인덱스도 삭제"
+  SetCtlColors $0 5C6D82 F4F6F9
+  ${NSD_CreateCheckbox} 0 66u 100% 20u "설정·즐겨찾기·검색 인덱스도 삭제"
   Pop $DataCheck
+  SetCtlColors $DataCheck 223044 F4F6F9
   ${NSD_SetState} $DataCheck $PurgeData
+  ${NSD_CreateLabel} 0 98u 100% 30u "선택하지 않으면 설정·즐겨찾기·검색 인덱스를 그대로 보존합니다."
+  Pop $0
+  SetCtlColors $0 5C6D82 F4F6F9
+  GetDlgItem $0 $HWNDPARENT 1
+  ${NSD_SetText} $0 "제거"
   nsDialogs::Show
 FunctionEnd
 Function un.DataPageLeave
@@ -211,3 +317,22 @@ Section "Uninstall"
   RMDir "${DATA_DIR}"
   done:
 SectionEnd
+
+Function un.FinishPage
+  !insertmacro MUI_HEADER_TEXT "제거가 완료되었습니다" "QuadFinder 프로그램과 바로가기를 제거했습니다."
+  nsDialogs::Create 1018
+  Pop $OptionsDialog
+  SetCtlColors $OptionsDialog 223044 F4F6F9
+  ${If} $PurgeData == 1
+    ${NSD_CreateLabel} 0 10u 100% 35u "선택한 앱 설정과 검색 인덱스를 함께 제거했습니다. 문서와 개인 파일은 유지됩니다."
+  ${Else}
+    ${NSD_CreateLabel} 0 10u 100% 35u "앱 설정과 즐겨찾기를 보존했습니다. 다시 설치하면 계속 사용할 수 있습니다."
+  ${EndIf}
+  Pop $0
+  SetCtlColors $0 5C6D82 F4F6F9
+  GetDlgItem $0 $HWNDPARENT 1
+  ${NSD_SetText} $0 "닫기"
+  GetDlgItem $0 $HWNDPARENT 2
+  ShowWindow $0 ${SW_HIDE}
+  nsDialogs::Show
+FunctionEnd
