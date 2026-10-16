@@ -24,7 +24,7 @@
 <body>
   <header class="titlebar">
     <div class="brand"><img class="brand-icon" src="app-icon.svg" alt=""><strong>QuadFinder</strong></div>
-    <div class="titlebar-actions"><button id="undo-operation" disabled>실행 취소</button><button id="check-updates" title="업데이트 확인">업데이트</button><label class="theme-picker"><span>테마</span><select id="theme-select" aria-label="색상 테마"><option value="dark">뉴트럴 블랙</option><option value="light">실버 라이트</option></select></label><div class="window-controls"><button data-window="minimize" aria-label="최소화">─</button><button data-window="maximize" aria-label="최대화">□</button><button data-window="close" aria-label="닫기">×</button></div></div>
+    <div class="titlebar-actions"><button id="show-guide" title="처음 사용 안내">사용 안내</button><button id="undo-operation" disabled>실행 취소</button><button id="check-updates" title="업데이트 확인">업데이트</button><label class="theme-picker"><span>테마</span><select id="theme-select" aria-label="색상 테마"><option value="dark">뉴트럴 블랙</option><option value="light">실버 라이트</option></select></label><div class="window-controls"><button data-window="minimize" aria-label="최소화">─</button><button data-window="maximize" aria-label="최대화">□</button><button data-window="close" aria-label="닫기">×</button></div></div>
   </header>
   <main class="app-shell">
     <aside class="sidebar" id="sidebar">
@@ -49,6 +49,18 @@
     </section>
   </main>
   <footer class="statusbar"><span class="status-dot"></span><button id="index-status" title="인덱싱 상태와 접근 오류 보기">검색 준비 중</button><span class="status-divider"></span><span id="index-count">0개 파일</span><button id="reindex" title="검색 인덱스 새로고침" aria-label="검색 인덱스 새로고침"><span data-icon="refresh"></span></button><span id="status-message"></span><span class="status-right"><button id="zoom-reset" title="Ctrl+휠로 전체 크기 조절 · 클릭 또는 Ctrl+0으로 초기화" aria-label="전체 화면 배율 초기화">100%</button><button id="manage-roots" title="검색 범위 확인"><span id="scope-label"></span></button><button id="show-operations">작업 <span id="job-count">0</span></button><span id="preview-label"></span></span></footer>
+  <dialog id="welcome-dialog" aria-describedby="welcome-description">
+    <div class="welcome-brand"><img src="app-icon.svg" alt="">QUADFINDER · 시작 안내</div>
+    <h2>파일 탐색, 더 빠르고 편하게</h2>
+    <p id="welcome-description">처음 사용하는 QuadFinder, 이것만 알아두세요.</p>
+    <section class="welcome-index"><span data-icon="search" aria-hidden="true"></span><div><strong>첫 인덱싱에는 시간이 걸릴 수 있어요</strong><p>PC의 로컬 드라이브에서 파일 이름을 수집합니다. 파일 수와 디스크 속도에 따라 오래 걸릴 수 있으며, 수집 중에는 검색 결과가 일부만 표시됩니다.</p><small>기다리는 동안에도 폴더 탐색은 사용할 수 있습니다. 진행 상황은 하단 인덱싱 상태를 눌러 확인하세요. 네트워크 폴더는 인덱싱에서 제외됩니다.</small></div></section>
+    <div class="welcome-tips">
+      <section><span data-icon="search" aria-hidden="true"></span><strong>이름으로 빠르게 검색</strong><p>상단 검색창에 파일 이름을 입력하세요.</p><kbd>Ctrl + K</kbd></section>
+      <section><span data-icon="layout4" aria-hidden="true"></span><strong>여러 폴더를 한 화면에</strong><p>상단의 1 · 2 · 4 버튼으로 분할하고, 사용할 패널을 클릭하세요.</p></section>
+      <section><span data-icon="folder-blue" aria-hidden="true"></span><strong>익숙한 파일 조작</strong><p>드래그로 여러 파일 선택, 우클릭으로 파일 메뉴를 열 수 있습니다.</p><kbd>Ctrl + 마우스 휠</kbd><small>전체 크기 조절</small></section>
+    </div>
+    <div class="welcome-footer"><small>상단 ‘사용 안내’에서 언제든 다시 볼 수 있습니다.</small><button id="welcome-start" class="primary">시작하기</button></div>
+  </dialog>
   <dialog id="index-dialog"><h2>인덱싱 상태</h2><p id="index-summary"></p><p>관리자 권한을 허용하면 읽기 전용 인덱싱 도우미로 보호 폴더를 다시 확인합니다. 파일의 권한이나 소유자는 변경하지 않습니다. 일부 Windows 보호 폴더는 계속 제한될 수 있습니다.</p><div id="index-problems"></div><div class="dialog-actions"><button id="elevate-index">관리자 권한으로 다시 인덱싱</button><button id="close-index" class="primary">닫기</button></div></dialog>
   <dialog id="folder-dialog"><form method="dialog"><h2>새 폴더 만들기</h2><p id="folder-parent"></p><label>폴더 이름<input id="folder-name" required maxlength="200" autocomplete="off"></label><div class="dialog-actions"><button value="cancel">취소</button><button id="create-folder" value="create" class="primary">만들기</button></div></form></dialog>
   <dialog id="rename-dialog"><form method="dialog"><h2>이름 변경</h2><p id="rename-path"></p><label>새 이름<input id="rename-name" required maxlength="240" autocomplete="off"></label><div class="dialog-actions"><button value="cancel" formnovalidate>취소</button><button value="rename" class="primary">변경</button></div></form></dialog>

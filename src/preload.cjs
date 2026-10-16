@@ -6,6 +6,7 @@ if(process.argv.includes('--quadfinder-design-preview')) {
   replyDialog:input=>ipcRenderer.invoke('dialog:reply',input),
   onDialog:callback=>{const handler=(_event,data)=>callback(data);ipcRenderer.on('dialog:request',handler);return ()=>ipcRenderer.removeListener('dialog:request',handler);},
   onDialogCancel:callback=>{const handler=(_event,id)=>callback(id);ipcRenderer.on('dialog:cancel',handler);return ()=>ipcRenderer.removeListener('dialog:cancel',handler);},
+  completeGuide: () => ipcRenderer.invoke('guide:complete'),
   bootstrap: () => ipcRenderer.invoke('bootstrap'),
   folders:path=>ipcRenderer.invoke('files:folders',path),
   validateFolder:path=>ipcRenderer.invoke('files:validate-folder',path),

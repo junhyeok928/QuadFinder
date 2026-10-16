@@ -264,6 +264,7 @@ async function readDrives(){
     return drives;
   }
   handle('navigation:drives',readDrives);
+  handle('guide:complete', async () => {await writeSettings({guideCompleted:true});return true;});
   handle('bootstrap', async () => {const drives=await readDrives();
     return { places, drives, roots, automaticRoots, networkDrives, layout, zoomFactor, indexStatus, jobs:operations.snapshot(), undo:undo.snapshot(), updater:updater.snapshot(), version: app.getVersion(), smoke };
   });
@@ -392,6 +393,11 @@ async function readDrives(){
     await new Promise(resolve=>setTimeout(resolve,400));
     await fs.mkdir(path.join(app.getAppPath(),'output'),{recursive:true});
     const capture=async name=>fs.writeFile(path.join(app.getAppPath(),'output',name),(await window.webContents.capturePage()).toPNG());
+    const guideChecks=await window.webContents.executeJavaScript(`(()=>{document.querySelector('#show-guide').click();const d=document.querySelector('#welcome-dialog');return {open:d.open,overflow:d.scrollWidth>d.clientWidth,withinViewport:d.getBoundingClientRect().bottom<=innerHeight};})()`);
+    if(!guideChecks.open||guideChecks.overflow||!guideChecks.withinViewport)throw new Error('사용 안내 레이아웃 검증 실패: '+JSON.stringify(guideChecks));
+    await new Promise(resolve=>setTimeout(resolve,150));
+    await capture('design-welcome.png');
+    await window.webContents.executeJavaScript(`document.querySelector('#welcome-start').click()`);
     await capture('design-refined.png');
     await window.webContents.executeJavaScript(`(async()=>{document.querySelector('#theme-select').value='light';await document.querySelector('#theme-select').onchange();})()`);
     await new Promise(resolve=>setTimeout(resolve,120));await capture('design-silver-light.png');

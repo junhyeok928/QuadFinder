@@ -408,3 +408,21 @@ dialog label{margin-top:16px}
 .action-dialog [hidden]{display:none!important}
 #index-problems{max-height:260px;overflow:auto;overflow-wrap:anywhere}
 @media(max-width:460px),(max-height:650px){dialog{padding:20px}.action-files{max-height:140px}.action-footer{gap:6px}.action-footer button{padding:8px 11px}}
+
+/* First-run guide uses the shared compact popup surface and theme tokens. */
+#welcome-dialog{width:660px}
+.welcome-brand{display:flex;align-items:center;gap:9px;font-size:11px;letter-spacing:1px;color:var(--muted);margin-bottom:18px}
+.welcome-brand img{width:24px;height:24px}
+.welcome-index{display:flex;gap:14px;border:1px solid var(--line-strong);border-radius:8px;padding:17px;background:var(--raised);margin:20px 0}
+.welcome-index>span{flex-shrink:0;color:var(--primary)}
+.welcome-index strong,.welcome-tips strong{font-size:14px;font-weight:500}
+.welcome-index p{margin:8px 0!important}
+.welcome-index small,.welcome-footer small,.welcome-tips small{font-size:12px;line-height:1.6;color:var(--muted)}
+.welcome-tips{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.welcome-tips section>span{display:block;margin-bottom:10px;color:var(--muted)}
+.welcome-tips p{font-size:12px;margin:8px 0 12px;line-height:1.6}
+.welcome-tips kbd{display:inline-block;font-size:11px;padding:4px 6px;border:1px solid var(--line);border-radius:4px}
+.welcome-tips small{display:block;margin-top:5px}
+.welcome-footer{display:flex;align-items:center;justify-content:space-between;gap:18px;border-top:1px solid var(--line);margin-top:24px;padding-top:18px}
+.welcome-footer button{padding:10px 20px;border-radius:6px;background:var(--primary);color:var(--on-primary);white-space:nowrap}
+@media(max-width:560px){.welcome-tips{grid-template-columns:1fr}.welcome-footer{align-items:flex-end}}

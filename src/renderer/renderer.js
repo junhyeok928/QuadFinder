@@ -332,6 +332,15 @@ async function init() {
   await Promise.all(state.panes.map((_pane,i)=>load(i)));
   initFeatures(boot);
   if(boot.preview){$('#search').value='프로젝트';await runSearch();const tab=tabOf(state.panes[0]);tab.selected=tab.entries.find(entry=>entry.name==='프로젝트 제안서.docx')?.path;tab.selection=new Set(tab.selected?[tab.selected]:[]);renderRows(0);}
+  const guide=$('#welcome-dialog');
+  $('#show-guide').onclick=()=>guide.showModal();
+  $('#welcome-start').onclick=()=>guide.close();
+  guide.addEventListener('close',async()=>{
+    if(boot.preview||boot.smoke)return;
+    try{await call(api.completeGuide());}catch(error){toast('안내 확인 상태를 저장하지 못했습니다: '+error.message);}
+    $('#show-guide').focus();
+  });
+  if(!boot.preview&&!boot.smoke&&!boot.layout?.guideCompleted)guide.showModal();
   window.__quadfinderReady=true;
 }
 function driveSize(bytes){return bytes>=1024**4?`${(bytes/1024**4).toFixed(2)} TB`:`${Math.round(bytes/1024**3)} GB`;}
