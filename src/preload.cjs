@@ -35,6 +35,7 @@ if(process.argv.includes('--quadfinder-design-preview')) {
   dropPaths:files=>files.map(file=>require('electron').webUtils.getPathForFile(file)),
   search: (query, filter) => ipcRenderer.invoke('search', query, filter),
   reindex: () => ipcRenderer.invoke('index:rebuild'),
+  elevateIndex:()=>ipcRenderer.invoke('index:elevate'),
   saveLayout: state => ipcRenderer.invoke('layout:save', state),
   setZoom:factor=>ipcRenderer.invoke('view:zoom',factor),
   setTheme:theme=>ipcRenderer.invoke('view:theme',theme),

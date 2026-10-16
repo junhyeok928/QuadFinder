@@ -1,14 +1,22 @@
 const {parentPort,workerData}=require('node:worker_threads');
 const fs=require('node:fs/promises');
-const path=require('node:path');
-const {matches}=require('./files.cjs');
-const {IndexEngine,targets}=require('./index-engine.cjs');
+const {matches,listDirectory}=require('./files.cjs');
+const {IndexEngine}=require('./index-engine.cjs');
+const {IndexStore}=require('./index-store.cjs');
 const {key}=require('./index-paths.cjs');
+const {NativeIndex}=require('./native-index.cjs');
 const send=value=>parentPort.postMessage(value);
-let indexing=false,initialized=false,requested=workerData.roots,controller;
-const updates=new Map();let savedRevision=-1,savedRoots='',cacheError;
-const rootKey=roots=>targets(roots).map(key).sort().join('\n');
-const engine=new IndexEngine({roots:workerData.roots,excluded:workerData.excludePaths||[],onProgress:status=>send({type:'status',indexing:true,...status,cacheError})});
+const store=new IndexStore(workerData.dbPath||(workerData.cachePath?workerData.cachePath+'.sqlite':':memory:'));
+let native,indexing=false,initialized=false,requested=workerData.roots,controller,searchGeneration=0,elevated=!!workerData.elevated,elevationError;
+const updates=new Map();
+async function read(value,options){
+  if(process.platform!=='win32'||workerData.native===false)return listDirectory(value,options);
+  if(!native||native.closed||native.failure)native=new NativeIndex({elevated});
+  try{return await native.list(value,options);}catch(error){if(elevated&&native.closed){elevated=false;elevationError='인덱싱 도우미 연결이 중단되어 일반 권한으로 계속합니다.';}throw error;}
+}
+const stat=async(value,options)=>{if(process.platform!=='win32'||workerData.native===false)return fs.lstat(value);if(!native||native.closed||native.failure)native=new NativeIndex({elevated});try{return await native.stat(value,options);}catch(error){if(elevated&&native.closed){elevated=false;elevationError='인덱싱 도우미 연결이 중단되어 일반 권한으로 계속합니다.';}throw error;}};
+const engine=new IndexEngine({roots:workerData.roots,excluded:workerData.excludePaths||[],store,read,stat,onProgress:status=>send({type:'status',indexing:true,elevated,elevationError,...status})});
+engine.failures=new Map((store.getMeta('problems')||[]).map(error=>[key(error.path),error]));
 async function pump(){
   if(indexing||!initialized)return;indexing=true;
   try{
@@ -17,31 +25,34 @@ async function pump(){
       if(full){engine.setRoots(requested);requested=null;}
       const values=full?engine.roots:[...updates.values()];updates.clear();controller=new AbortController();
       let status;
-      try{status=await engine.scan(values,{full,signal:controller.signal});}catch(error){if(error.code==='ABORT_ERR')continue;throw error;}
+      try{status=await engine.scan(values,{full,signal:controller.signal});}catch(error){store.flush();if(error.code==='ABORT_ERR')continue;throw error;}
       if(requested)continue;
-      if(workerData.cachePath&&(savedRevision!==engine.revision||savedRoots!==rootKey(engine.roots)))try{
-        const revision=engine.revision,roots=[...engine.roots],entries=[...engine.entries.values()];
-        await fs.mkdir(path.dirname(workerData.cachePath),{recursive:true});
-        await fs.writeFile(workerData.cachePath+'.tmp',JSON.stringify({version:1,roots,entries,updated:Date.now()}));
-        await fs.rename(workerData.cachePath+'.tmp',workerData.cachePath);savedRevision=revision;savedRoots=rootKey(roots);cacheError=undefined;
-      }catch(error){cacheError=error.message;}
-      send({type:'status',...status,indexing:!!requested||updates.size>0,updated:Date.now(),cacheError});
+      store.setMeta('roots',engine.roots);store.setMeta('problems',[...engine.failures.values()]);store.flush();
+      send({type:'status',...status,indexing:!!requested||updates.size>0,elevated,elevationError,updated:Date.now()});
     }
-  }catch(error){send({type:'error',message:error.message});}finally{indexing=false;}
+  }catch(error){send({type:'error',message:error.message});}finally{store.flush();indexing=false;}
+}
+async function search(message){
+  const generation=++searchGeneration,results=[];let total=0,processed=0;
+  if(message.query?.trim())for(const entry of store.candidates(message.query)){
+    if(matches(entry,message.query,message.filter)){total++;if(results.length<1000)results.push(entry);}
+    if(++processed%2048===0){await new Promise(resolve=>setImmediate(resolve));if(generation!==searchGeneration){send({type:'results',id:message.id,entries:[],total:0,indexing,cancelled:true});return;}}
+  }
+  send({type:'results',id:message.id,entries:results,total,indexing});
 }
 parentPort.on('message',message=>{
+  if(message.type==='stop'){requested=null;updates.clear();controller?.abort();native?.close();store.flush();send({type:'stopped'});return;}
   if(message.type==='update'){for(const value of message.paths||[])if(engine.allowed(value))updates.set(key(value),value);pump();return;}
   if(message.type==='rebuild'){requested=message.roots;engine.setRoots(requested);controller?.abort();pump();return;}
-  const results=[];let total=0;
-  if(message.query?.trim())for(const entry of engine.entries.values())if(matches(entry,message.query,message.filter)){total++;if(results.length<1000)results.push(entry);}
-  send({type:'results',id:message.id,entries:results,total,indexing});
+  search(message).catch(error=>send({type:'error',message:error.message}));
 });
 (async()=>{
-  if(workerData.cachePath)try{
-    const cached=JSON.parse(await fs.readFile(workerData.cachePath,'utf8'));
-    if(cached.version===1&&Array.isArray(cached.roots)&&Array.isArray(cached.entries)){
-      engine.restore(cached.entries);if(rootKey(cached.roots)===rootKey(engine.roots)&&engine.entries.size===cached.entries.length){savedRevision=engine.revision;savedRoots=rootKey(engine.roots);}
-    }
-  }catch{}
+  // Import the old cache once; never rewrite a full JSON snapshot after changes.
+  if(workerData.cachePath&&!store.getMeta('legacyImported')){
+    if(!store.entries.size)try{const cached=JSON.parse(await fs.readFile(workerData.cachePath,'utf8'));if(cached.version===1&&Array.isArray(cached.entries))engine.restore(cached.entries);}catch{}
+    store.setMeta('legacyImported',true);store.flush();
+  }
+  if(elevated)try{send({type:'status',indexing:true,count:engine.entries.size,awaitingElevation:true});native=new NativeIndex({elevated:true});const info=await native.request({mode:'hello'});if(!info.elevated)throw new Error('관리자 권한을 확인할 수 없습니다.');}catch(error){native?.close();native=null;elevated=false;elevationError=error.message;}
   initialized=true;await pump();
-})().catch(error=>send({type:'error',message:error.message}));
+})().catch(error=>{native?.close();send({type:'error',message:error.message});});
+process.on('exit',()=>{native?.close();store.close();});

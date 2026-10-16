@@ -15,10 +15,10 @@ function localPath(value) {
   return path.normalize(value);
 }
 
-async function listDirectory(value, {signal, include = () => true} = {}) {
+async function listDirectory(value, {signal, include = () => true,tolerateMetadataErrors=false} = {}) {
   const directory = localPath(value);
   const dirents = (await fs.readdir(directory, { withFileTypes: true })).filter(item=>!item.name.startsWith('.quadfinder-')&&include(path.join(directory,item.name)));
-  const entries = [];
+  const entries = [],errors=[];
   // Bounded batches avoid flooding the filesystem with stat requests.
   for (let offset = 0; offset < dirents.length; offset += 32) {
     signal?.throwIfAborted();
@@ -28,10 +28,10 @@ async function listDirectory(value, {signal, include = () => true} = {}) {
         const stat = await fs.lstat(fullPath);
         return { name: item.name, path: fullPath, parent: directory, directory: item.isDirectory(),
           link: item.isSymbolicLink(), size: stat.size, modified: stat.mtimeMs, created:stat.birthtimeMs, accessed:stat.atimeMs, hidden:item.name.startsWith('.'), extension: path.extname(item.name).toLowerCase() };
-      } catch(error) { if(signal&&!['ENOENT','ENOTDIR'].includes(error.code))throw error;return null; }
+      } catch(error) { if(tolerateMetadataErrors&&!['ENOENT','ENOTDIR'].includes(error.code)){errors.push({path:fullPath,code:error.code||'EIO'});return {name:item.name,path:fullPath,parent:directory,directory:item.isDirectory(),link:item.isSymbolicLink(),size:0,modified:0,created:0,hidden:item.name.startsWith('.'),extension:path.extname(item.name).toLowerCase(),metadataUnknown:true};}if(signal&&!['ENOENT','ENOTDIR'].includes(error.code))throw error;return null; }
     })));
   }
-  return { path: directory, parent: path.dirname(directory), entries: entries.filter(Boolean).sort(compareEntries) };
+  return { path: directory, parent: path.dirname(directory), entries: entries.filter(Boolean).sort(compareEntries),errors };
 }
 
 function compareEntries(a, b) {
@@ -46,7 +46,7 @@ function matches(entry, query, filter = 'all') {
     if(word.startsWith('path:'))return (entry.path||'').normalize('NFC').toLocaleLowerCase().includes(word.slice(5));
     if(word.startsWith('size:')){
       const match=word.slice(5).match(/^(>=|<=|>|<|=)?(\d+(?:\.\d+)?)(b|kb|mb|gb|tb)?$/);
-      if(!match||entry.directory)return false;
+      if(!match||entry.directory||entry.metadataUnknown)return false;
       const amount=Number(match[2])*1024**({b:0,kb:1,mb:2,gb:3,tb:4}[match[3]||'b']);
       return ({'>':entry.size>amount,'<':entry.size<amount,'>=':entry.size>=amount,'<=':entry.size<=amount,'=':entry.size===amount})[match[1]||'='];
     }

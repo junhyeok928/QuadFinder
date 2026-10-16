@@ -4,6 +4,8 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const os=require('node:os');
 const {Worker}=require('node:worker_threads');
+const {DatabaseSync}=require('node:sqlite');
+function snapshot(cache){const db=new DatabaseSync(cache+'.sqlite',{readOnly:true});try{return JSON.stringify(db.prepare('SELECT record FROM entries ORDER BY id').all());}finally{db.close();}}
 
 function message(worker,predicate){return new Promise((resolve,reject)=>{
   const timer=setTimeout(()=>{cleanup();reject(new Error('index timeout'));},10000);
@@ -16,16 +18,16 @@ test('index cache loads, deduplicates overlapping roots and refreshes after chan
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'quadfinder-index-cache-'));
   const files=path.join(root,'files'),cachePath=path.join(root,'cache.json');let worker;
   try{
-    await fs.mkdir(path.join(files,'nested'),{recursive:true});await fs.writeFile(path.join(files,'nested','first.txt'),'first');
+    await fs.mkdir(path.join(files,'nested'),{recursive:true});await fs.writeFile(path.join(files,'nested','first.txt'),'first');await fs.utimes(path.join(files,'nested'),new Date(1700000000000),new Date(1700000000000));
     const stale=Array.from({length:8},(_,i)=>({name:`old${i}.txt`,path:path.join(files,`old${i}.txt`),directory:false,size:1,modified:0}));
     await fs.writeFile(cachePath,JSON.stringify({version:1,roots:[files,path.join(files,'nested')],entries:stale}));
-    worker=new Worker(path.join(__dirname,'../src/index-worker.cjs'),{workerData:{roots:[files,path.join(files,'nested')],cachePath}});
+    worker=new Worker(path.join(__dirname,'../src/index-worker.cjs'),{workerData:{native:false,roots:[files,path.join(files,'nested')],cachePath}});
     const initial=message(worker,value=>value.type==='status'&&value.indexing),ready=message(worker,value=>value.type==='status'&&!value.indexing);
     assert.equal((await initial).count,8);assert.equal((await ready).count,2);
-    assert.equal(JSON.parse(await fs.readFile(cachePath,'utf8')).entries.length,2);
-    const unchanged=await fs.readFile(cachePath,'utf8'),unchangedTime=(await fs.stat(cachePath)).mtimeMs;
+    assert.equal(JSON.parse(snapshot(cachePath)).length,2);assert.equal(JSON.parse(await fs.readFile(cachePath,'utf8')).entries.length,8);
+    const unchanged=snapshot(cachePath),unchangedTime=(await fs.stat(cachePath+'.sqlite-wal')).mtimeMs;
     const same=message(worker,value=>value.type==='status'&&!value.indexing);worker.postMessage({type:'rebuild',roots:[files,path.join(files,'nested')]});await same;
-    assert.equal(await fs.readFile(cachePath,'utf8'),unchanged);assert.equal((await fs.stat(cachePath)).mtimeMs,unchangedTime);
+    assert.equal(snapshot(cachePath),unchanged);assert.equal((await fs.stat(cachePath+'.sqlite-wal')).mtimeMs,unchangedTime);
     await fs.writeFile(path.join(files,'second.txt'),'second');
     const refreshed=message(worker,value=>value.type==='status'&&!value.indexing);worker.postMessage({type:'rebuild',roots:[files]});assert.equal((await refreshed).count,3);
     const result=message(worker,value=>value.type==='results'&&value.id===2);worker.postMessage({id:2,query:'*.txt',filter:'documents'});assert.equal((await result).total,2);
@@ -38,14 +40,14 @@ test('incremental updates keep unrelated entries, remove deleted trees and ignor
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'quadfinder-index-cache-'));let worker;
   try{
     const files=path.join(root,'files'),cachePath=path.join(root,'cache.json');await fs.mkdir(files);await fs.writeFile(path.join(files,'stable.txt'),'stable');
-    worker=new Worker(path.join(__dirname,'../src/index-worker.cjs'),{workerData:{roots:[files],cachePath}});
+    worker=new Worker(path.join(__dirname,'../src/index-worker.cjs'),{workerData:{native:false,roots:[files],cachePath}});
     await message(worker,v=>v.type==='status'&&!v.indexing);
     const update=async paths=>{const ready=message(worker,v=>v.type==='status'&&!v.indexing);worker.postMessage({type:'update',paths});return ready;};
     const nested=path.join(files,'nested');await fs.mkdir(nested);await fs.writeFile(path.join(nested,'new.txt'),'new');
     assert.equal((await update([nested,path.join(nested,'new.txt')])).count,3);
     let result=message(worker,v=>v.type==='results'&&v.id===9);worker.postMessage({id:9,query:'stable',filter:'all'});assert.equal((await result).total,1);
-    const cached=await fs.readFile(cachePath,'utf8');await update([path.join(nested,'new.txt')]);assert.equal(await fs.readFile(cachePath,'utf8'),cached);
+    const cached=snapshot(cachePath);await update([path.join(nested,'new.txt')]);assert.equal(snapshot(cachePath),cached);
     await fs.rm(nested,{recursive:true});assert.equal((await update([nested])).count,1);
-    const {indexable}=require('../src/index-paths.cjs');assert.equal(indexable(path.join(files,'.git','index'),[files]),false);assert.equal(indexable(path.join(files,'node_modules','foo'),[files]),false);assert.equal(indexable(path.join(files,'.quadfinder-temp'),[files]),false);assert.equal(indexable(root,[files]),false);assert.equal(indexable(path.join(files,'settings','index.json'),[files],[path.join(files,'settings')]),false);
+    const {indexable}=require('../src/index-paths.cjs');assert.equal(indexable(path.join(files,'.git','index'),[files]),true);assert.equal(indexable(path.join(files,'node_modules','foo'),[files]),true);assert.equal(indexable(path.join(files,'.quadfinder-temp'),[files]),false);assert.equal(indexable(root,[files]),false);assert.equal(indexable(path.join(files,'settings','index.json'),[files],[path.join(files,'settings')]),false);
   }finally{await worker?.terminate();assert(path.basename(root).startsWith('quadfinder-index-cache-'));await fs.rm(root,{recursive:true,force:true});}
 });

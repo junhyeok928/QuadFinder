@@ -262,7 +262,24 @@ async function runSearch() {
   try { const result=await call(api.search(state.query,state.filter)); if(token!==state.request||tabOf(pane)!==tab||!tab.search)return; tab.entries=result.entries;tab.selection=new Set([...selection(tab)].filter(value=>result.entries.some(entry=>entry.path===value)));tab.total=result.total; tab.loading=false; renderPane(0); }
   catch(error) { if(token!==state.request)return; tab.error=error.message; tab.loading=false; renderPane(0); }
 }
-function updateIndex(status) { $('#index-status').textContent = status.error?'검색 인덱스 오류':status.indexing?`파일 인덱싱 중 · ${(status.scanned||0).toLocaleString()}개 폴더 확인`:status.skipped?'인덱스 확인 완료 · 일부 폴더 접근 불가':status.limited?'인덱스 한도 도달 (25만 항목)':'인덱스 준비 완료'; $('#index-count').textContent=`${status.count.toLocaleString()}개 파일·폴더`; $('.status-dot').classList.toggle('busy',status.indexing); $('#index-status').title = status.error || [status.current,`${status.skipped||0}개 폴더 접근 불가 · 네트워크 폴더는 인덱싱 제외`,...(status.warnings||[]).map(item=>`${item.code}: ${item.path}`),status.cacheError&&`캐시 저장 실패: ${status.cacheError}`].filter(Boolean).join('\n'); if(state.query&&!status.indexing)queueRefresh([]); }
+function renderIndexDiagnostics(status){
+  const issues=status.issues||{},labels={denied:'권한 부족',timedOut:'시간 초과',missing:'경로 사라짐',other:'기타 오류'};
+  $('#index-summary').textContent=`${status.count.toLocaleString()}개 파일·폴더 · ${status.elevated?'관리자 도우미':'일반 권한'} · `+Object.entries(labels).map(([key,label])=>`${label} ${issues[key]||0}개`).join(' · ');
+  $('#index-problems').innerHTML=(status.problems||[]).map(item=>`<p><strong>${escapeHTML(item.code)}</strong> ${escapeHTML(item.path)}</p>`).join('')||'<p>현재 확인된 접근 오류가 없습니다.</p>';
+  if(status.problemCount>200)$('#index-problems').insertAdjacentHTML('beforeend',`<p>총 ${status.problemCount}개 중 200개 표시</p>`);
+  if(status.elevationError)$('#index-problems').insertAdjacentHTML('afterbegin',`<p>${escapeHTML(status.elevationError)} 일반 권한으로 계속합니다.</p>`);
+  $('#elevate-index').disabled=!api.elevateIndex||status.elevated||status.awaitingElevation;
+}
+function updateIndex(status) {
+  state.indexStatus=status;
+  const issues=status.issues||{};
+  $('#index-status').textContent=status.error?'검색 인덱스 오류':status.awaitingElevation?'관리자 승인 대기 중…':status.indexing?`파일 인덱싱 중 · ${(status.scanned||0).toLocaleString()}개 폴더 확인`:status.problemCount?`확인 완료 · 권한 ${issues.denied||0} · 시간 초과 ${issues.timedOut||0} · 기타 ${(issues.missing||0)+(issues.other||0)}`:status.limited?'인덱스 한도 도달':'인덱스 준비 완료';
+  $('#index-count').textContent=`${status.count.toLocaleString()}개 파일·폴더`;
+  $('.status-dot').classList.toggle('busy',status.indexing);
+  $('#index-status').title=status.error||[status.current,'클릭하여 상세 오류와 관리자 인덱싱 보기 · 네트워크 폴더는 제외',...(status.problems||status.warnings||[]).slice(0,8).map(item=>`${item.code}: ${item.path}`)].filter(Boolean).join('\n');
+  if($('#index-dialog').open)renderIndexDiagnostics(status);
+  if(state.query&&!status.indexing)queueRefresh([]);
+}
 
 async function init() {
   const boot=await call(api.bootstrap()); state.boot=boot;
@@ -290,6 +307,9 @@ async function init() {
   $('#search').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(runSearch,180);};
   $('#search').onkeydown=event=>{if(event.key==='Enter'){clearTimeout(searchTimer);runSearch();}if(event.key==='Escape'){$('#search').value='';runSearch();}};
   $('#clear-search').onclick=()=>{$('#search').value='';runSearch();$('#search').focus();};
+  $('#index-status').onclick=()=>{renderIndexDiagnostics(state.indexStatus||state.boot.indexStatus);$('#index-dialog').showModal();};
+  $('#close-index').onclick=()=>$('#index-dialog').close();
+  $('#elevate-index').onclick=async()=>{try{await call(api.elevateIndex());$('#index-dialog').close();toast('Windows 관리자 승인 창을 확인해 주세요.');}catch(error){toast(error.message);}};
   $('#reindex').onclick=async()=>{try{await call(api.reindex());toast('파일 목록을 다시 수집합니다.');}catch(error){toast(error.message);}};
   $('#folder-dialog').addEventListener('close',async()=>{if($('#folder-dialog').returnValue!=='create')return;try{await call(api.mkdir($('#folder-parent').textContent,$('#folder-name').value));await load(state.active);toast('새 폴더를 만들었습니다.');}catch(error){toast(error.message);}});
   $('#folder-dialog button[value="cancel"]').formNoValidate=true;

@@ -7,6 +7,7 @@ test('Windows shell exposes real file/background menus and native hidden attribu
     const networks=await shell.request({mode:'network-drives'});assert(Array.isArray(networks));assert(networks.every(value=>/^[A-Z]:\\$/.test(value)));
     const locals=await shell.request({mode:'local-drives'});assert(locals.length>0);assert(locals.every(value=>/^[A-Z]:\\$/.test(value)&&!networks.includes(value)));assert(locals.includes(path.parse(os.tmpdir()).root.toUpperCase()));
     const attrs=await shell.request({mode:'attributes',paths:[first,second]});assert.equal(attrs[0].hidden,true);assert.equal(attrs[1].hidden,false);
+    const missing=await shell.request({mode:'attributes',paths:[path.join(root,'missing.txt')]});assert.equal(missing[0].known,false);assert.equal(attrs[0].known,true);
     const file=await shell.request({mode:'probe',paths:[first,second]});assert(file.count>5);assert(file.labels.length>0);assert(file.verbs.includes('properties'),JSON.stringify(file));assert(file.verbs.includes('copy'),JSON.stringify(file));
     const background=await shell.request({mode:'probe',paths:[root],background:true});assert(background.count>0);
   }finally{assert(path.basename(root).startsWith('quadfinder-shell-'));await fs.rm(root,{recursive:true,force:true});}

@@ -33,7 +33,7 @@ test('worker indexes nested folders, deduplicates roots and reports filtered res
   let worker;
   try{
     await fs.mkdir(path.join(root,'nested'));await fs.writeFile(path.join(root,'nested','프로젝트.pdf'),'test');await fs.writeFile(path.join(root,'nested','프로젝트.png'),'test');
-    worker=new Worker(path.join(__dirname,'../src/index-worker.cjs'),{workerData:{roots:[root,root]}});
+    worker=new Worker(path.join(__dirname,'../src/index-worker.cjs'),{workerData:{native:false,roots:[root,root]}});
     const result=await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('worker timeout')),10000);worker.on('error',reject);worker.on('message',message=>{if(message.type==='status'&&!message.indexing){assert.equal(message.count,3);worker.postMessage({id:1,query:'프로젝트',filter:'documents'});}if(message.type==='results'){clearTimeout(timeout);resolve(message);}});});
     assert.equal(result.total,1);assert.equal(result.entries[0].name,'프로젝트.pdf');
   }finally{await worker?.terminate();await fs.rm(root,{recursive:true,force:true});}

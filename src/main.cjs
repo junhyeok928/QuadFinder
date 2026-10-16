@@ -15,7 +15,7 @@ const {normalize:normalizeNavigation}=require('./navigation-state.cjs');
 const {normalize:normalizeView}=require('./view-options.cjs');
 const pdfPreviews=new Map();
 let shellMenuOpen=false;
-async function enrich(entries){if(!entries.length)return entries;const attributes=await windowsShell.request({mode:'attributes',paths:entries.map(entry=>entry.path)});const map=new Map(attributes.map(item=>[item.path.toLowerCase(),item]));return entries.map(entry=>({...entry,...map.get(entry.path.toLowerCase())}));}
+async function enrich(entries){if(!entries.length)return entries;const attributes=await windowsShell.request({mode:'attributes',paths:entries.map(entry=>entry.path)});const map=new Map(attributes.filter(item=>item.known!==false).map(item=>[item.path.toLowerCase(),item]));return entries.map(entry=>({...entry,...map.get(entry.path.toLowerCase())}));}
 protocol.registerSchemesAsPrivileged([{ scheme: 'quadfinder', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 const smoke = !app.isPackaged && process.argv.includes('--smoke-test');
 const designPreview = !app.isPackaged && process.argv.includes('--design-preview');
@@ -61,6 +61,7 @@ const {key:pathKey}=require('./change-policy.cjs');
 const {indexable,networkPath}=require('./index-paths.cjs');
 let networkDrives=[];
 let automaticRoots=[];
+let indexElevated=false,indexSwitching=false;
 const indexExclusions=()=>[app.getPath('userData'),...networkDrives];
 const rootWatchers=[],folderWatchers=[];
 const stateFile = () => path.join(app.getPath('userData'), 'layout.json');
@@ -120,16 +121,19 @@ async function checkSidebarResize() {
 }
 
 function startIndex() {
+  if(indexSwitching)return;
   if(worker){worker.postMessage({type:'rebuild',roots});return;}
   for (const { resolve } of pending.values()) resolve({ entries: [], total: 0, indexing: true });
   pending.clear();
   indexStatus = { indexing: true, count: 0, skipped: 0, limited: false };
-  worker = new Worker(path.join(__dirname, 'index-worker.cjs'), { workerData: { roots,excludePaths:indexExclusions(),cachePath:smoke?null:path.join(app.getPath('userData'),'index-cache.json') } });
+  worker = new Worker(path.join(__dirname, 'index-worker.cjs'), { workerData: { roots,excludePaths:indexExclusions(),elevated:indexElevated,dbPath:smoke?null:path.join(app.getPath('userData'),'index.sqlite'),cachePath:smoke?null:path.join(app.getPath('userData'),'index-cache.json') } });
   worker.on('message', message => {
+    if(message.type==='stopped')return;
     if (message.type === 'results') {
       enrich(message.entries).catch(()=>message.entries).then(entries=>pending.get(message.id)?.resolve({...message,entries})).finally(()=>pending.delete(message.id));
     } else {
       indexStatus = message.type === 'error' ? { ...indexStatus, indexing: false, error: message.message } : message;
+      if(message.type==='status'&&typeof message.elevated==='boolean')indexElevated=message.elevated;
       if (!window.isDestroyed()) window.webContents.send('index:status', indexStatus);
     }
   });
@@ -155,7 +159,7 @@ function handle(channel, callback) {
 }
 
 async function setup() {
-  if(!app.isPackaged){const nativeSource=path.join(app.getAppPath(),'native/ShellBridge.cs');try{if((await fs.stat(nativeSource)).mtimeMs>(await fs.stat(windowsShell.executable())).mtimeMs)require('../scripts/build-native.cjs').buildNative();}catch{require('../scripts/build-native.cjs').buildNative();}}
+  if(!app.isPackaged){try{for(const [source,exe]of [['ShellBridge.cs',windowsShell.executable()],['IndexBridge.cs',require('./native-index.cjs').executable()]])if((await fs.stat(path.join(app.getAppPath(),'native',source))).mtimeMs>(await fs.stat(exe)).mtimeMs){require('../scripts/build-native.cjs').buildNative();break;}}catch{require('../scripts/build-native.cjs').buildNative();}}
   for (const [key, label, icon] of [['home', '홈', 'home'], ['desktop', '바탕 화면', 'desktop'], ['downloads', '다운로드', 'download'], ['documents', '문서', 'document'], ['pictures', '사진', 'image']]) {
     try { const directory = app.getPath(key); if ((await fs.stat(directory)).isDirectory()) places.push({ label, path: directory, icon }); } catch { /* Missing known folders are not displayed. */ }
   }
@@ -333,11 +337,23 @@ async function readDrives(){
     if(!roots.some(existing=>require('./index-paths.cjs').within(root,existing))){roots.push(root);await saveRoots();}return roots;
   });
   handle('search', (query, filter) => {
+    if(indexSwitching)throw new Error('인덱싱 권한을 전환하는 중입니다. 잠시 후 다시 검색하세요.');
     if (typeof query !== 'string' || query.length > 500 || !['all', 'documents', 'images', 'recent'].includes(filter)) throw new Error('잘못된 검색 조건입니다.');
     if(!worker)startIndex();
     return new Promise((resolve, reject) => { const id = ++searchId;const timer=setTimeout(()=>{pending.delete(id);reject(new Error('검색 응답 시간이 초과되었습니다. 다시 검색해 주세요.'));},20000);pending.set(id, { resolve:value=>{clearTimeout(timer);resolve(value);}, reject:error=>{clearTimeout(timer);reject(error);} }); worker.postMessage({ id, query, filter }); });
   });
   handle('index:rebuild', () => { startIndex(); return roots; });
+  handle('index:elevate',async()=>{
+    if(smoke||designPreview||process.platform!=='win32')throw new Error('일반 Windows 실행에서 사용할 수 있습니다.');
+    if(indexSwitching||indexElevated)throw new Error('관리자 인덱싱이 이미 진행 중입니다.');
+    indexSwitching=true;
+    try{
+      const previous=worker;worker=null;
+      for(const {reject}of pending.values())reject(new Error('인덱싱 권한을 전환하는 중입니다. 다시 검색하세요.'));pending.clear();
+      if(previous){await new Promise(resolve=>{const timer=setTimeout(resolve,3000);previous.on('message',function stopped(message){if(message.type==='stopped'){previous.off('message',stopped);clearTimeout(timer);resolve();}});previous.postMessage({type:'stop'});});await previous.terminate();}
+      indexElevated=true;indexSwitching=false;startIndex();return true;
+    }finally{indexSwitching=false;}
+  });
   handle('layout:save', async value => {
     if (!value || ![1, 2, 4].includes(value.layout) || !Array.isArray(value.panes) || value.panes.length !== 4) throw new Error('잘못된 레이아웃입니다.');
     const folderViews=Object.fromEntries(Object.entries(value.folderViews||{}).slice(-2000).filter(([key])=>{try{localPath(key);return true;}catch{return false;}}).map(([key,options])=>[key,normalizeView(options)]));
@@ -449,6 +465,7 @@ async function readDrives(){
     await fs.rm(functionSmokeRoot,{recursive:true,force:true});functionSmokeRoot=null;
     result.zoom=await require('../scripts/zoom-smoke.cjs').run({window,stateFile:stateFile(),output:path.join(app.getAppPath(),'output'),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,200));await saveQueue;}});
     result.theme=await require('../scripts/theme-smoke.cjs').run({window,stateFile:stateFile(),output:path.join(app.getAppPath(),'output'),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,200));await saveQueue;}});
+    result.indexDiagnostics=await require('../scripts/index-smoke.cjs').run({window});
     result.panelResize=await require('../scripts/panel-smoke.cjs').run({window,stateFile:stateFile(),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;}});
     await fs.mkdir(path.join(app.getAppPath(), 'output'), { recursive: true });
     await fs.writeFile(path.join(app.getAppPath(), 'output', 'smoke.png'), (await window.webContents.capturePage()).toPNG());

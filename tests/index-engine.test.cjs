@@ -46,7 +46,7 @@ test('unchanged scans do not mutate the cache revision and failed child reads pr
   const result=await engine.scan([root],{full:true});assert.equal(result.skipped,1);assert.equal(engine.revision,revision);assert.equal(engine.entries.size,2);
 });
 test('excluded directories are filtered before metadata reads',async()=>{
-  const engine=new IndexEngine({roots:[root],stat:async()=>info,read:async(value,options)=>{assert.equal(options.include(path.join(root,'node_modules','large')),false);assert.equal(options.include(path.join(root,'normal.txt')),true);return {entries:[]};}});await engine.scan([root],{full:true});
+  const engine=new IndexEngine({roots:[root],excluded:[path.join(root,'excluded')],stat:async()=>info,read:async(value,options)=>{assert.equal(options.include(path.join(root,'excluded','large')),false);assert.equal(options.include(path.join(root,'normal.txt')),true);return {entries:[]};}});await engine.scan([root],{full:true});
 });
 test('updates through a linked ancestor never publish external file metadata',async()=>{
   const folder=entry('linked',true),file=entry(path.join('linked','outside.txt'));let reads=0;
@@ -56,4 +56,21 @@ test('updates through a linked ancestor never publish external file metadata',as
 test('a shallow parent notification does not swallow an explicit deep file update',async()=>{
   const folder=entry('nested',true),file=entry(path.join('nested','file.txt'));const engine=new IndexEngine({roots:[root],stat:async value=>({...info,isDirectory:()=>key(value)!==key(file.path),size:99}),read:async()=>({entries:[folder]})});engine.restore([folder,file]);
   await engine.scan([root,file.path]);assert.equal(engine.entries.get(key(file.path)).size,99);
+});
+
+
+test('diagnostics distinguish permission, timeout and disappearing paths and clear recovered or deleted failures',async()=>{
+  const folder=entry('blocked',true);let fail=true;
+  const engine=new IndexEngine({roots:[root],read:async value=>{if(value===root)return {entries:[folder]};if(fail)throw Object.assign(new Error('denied'),{code:'EACCES'});return {entries:[]};}});
+  let status=await engine.scan([root],{full:true});assert.equal(status.issues.denied,1);assert.equal(status.issues.timedOut,0);
+  fail=false;status=await engine.scan([root],{full:true});assert.equal(status.problemCount,0);
+  fail=true;await engine.scan([root],{full:true});engine.read=async()=>({entries:[]});status=await engine.scan([root],{full:true});assert.equal(status.problemCount,0);
+  engine.failures.set('timeout',{path:root,code:'ETIMEDOUT'});engine.failures.set('missing',{path:root,code:'ENOENT'});assert.equal(engine.diagnostics().issues.timedOut,1);assert.equal(engine.diagnostics().issues.missing,1);
+});
+
+
+test('root changes cancel an in-flight metadata request before a new native directory request',async()=>{
+  let cancelled=false;const controller=new AbortController();
+  const engine=new IndexEngine({roots:[root],stat:(_value,{signal})=>new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>{cancelled=true;reject(Object.assign(new Error('cancelled'),{code:'ABORT_ERR'}));},{once:true}))});
+  const running=engine.scan([entry('file.txt').path],{signal:controller.signal});await new Promise(resolve=>setImmediate(resolve));controller.abort();await assert.rejects(running,{code:'ABORT_ERR'});assert(cancelled);
 });

@@ -7,6 +7,7 @@ function buildNative(){
   const file=path.join(directory,'QuadFinder.Shell.exe');
   const compiler=path.join(process.env.WINDIR||'C:\\Windows','Microsoft.NET/Framework64/v4.0.30319/csc.exe');
   execFileSync(compiler,['/nologo','/target:exe','/platform:x64','/optimize+','/r:System.Windows.Forms.dll','/r:System.Web.Extensions.dll',`/out:${file}`,path.resolve(__dirname,'../native/ShellBridge.cs')],{stdio:'inherit',windowsHide:true});
+  execFileSync(compiler,['/nologo','/target:exe','/platform:x64','/optimize+','/r:System.Web.Extensions.dll',`/out:${path.join(directory,'QuadFinder.Index.exe')}`,path.resolve(__dirname,'../native/IndexBridge.cs')],{stdio:'inherit',windowsHide:true});
   return file;
 }
 module.exports={buildNative};if(require.main===module)console.log(buildNative());
