@@ -3,6 +3,8 @@ let fileClipboard=null,draggedPaths=null,renameSource=null,refreshTimer=null;
 let clipboardQueue=Promise.resolve();
 function clipboardTask(task){const next=clipboardQueue.catch(()=>{}).then(task);clipboardQueue=next;return next;}
 async function readFileClipboard(){return clipboardTask(async()=>{if(api.readClipboard){const data=await call(api.readClipboard());fileClipboard=data.paths.length?data:null;}return fileClipboard;});}
+let jobsHideTimer=null,jobsManuallyOpened=false;
+function scheduleJobsHide(){clearTimeout(jobsHideTimer);if($('#operations-panel').hidden||jobsManuallyOpened||currentJobs.some(activeJob))return;jobsHideTimer=setTimeout(()=>{if(!jobsManuallyOpened&&!currentJobs.some(activeJob))$('#operations-panel').hidden=true;},1500);}
 let currentJobs=[];
 let refreshFocused=true,pendingRefreshAll=false,pendingSearch=false,refreshRunning=false;
 const pendingRefreshPaths=new Set();
@@ -63,15 +65,15 @@ function bindPaneFeatures(index){
     try{if(!sources&&event.dataTransfer.files.length&&api.dropPaths)sources=await api.dropPaths(Array.from(event.dataTransfer.files));}catch(error){toast(error.message);return;}
     if(!sources?.length)return;
     const row=event.target.closest('.file-row'),entry=row?pane.visibleEntries[Number(row.dataset.row)]:null;
-    await transfer(event.shiftKey?'move':'copy',sources,entry?.directory?entry.path:tab.path);
+    await transfer(event.shiftKey?'move':'copy',sources,entry?.directory?entry.path:tab.path,{drop:true});
     draggedPaths=null;
   };
   updateSelection(index);
 }
 function showFileMenu(index,x,y,background=false,extended=false){setActive(index);if(api.shellMenu&&!(background&&tabOf(state.panes[index]).search)&&!state.boot?.preview)return nativeMenu(index,x,y,background,undefined,extended);modernFileMenu(index,x,y,background);}
 
-async function transfer(kind,sources,destination){
-  try{if(!api.startOperation)throw new Error('예시 화면에서는 파일 작업을 실행할 수 없습니다.');const id=await call(api.startOperation({kind,sources,destination}));if(id)$('#operations-panel').hidden=false;return id;}
+async function transfer(kind,sources,destination,options={}){
+  try{if(!api.startOperation)throw new Error('예시 화면에서는 파일 작업을 실행할 수 없습니다.');const id=await call(api.startOperation({kind,sources,destination,drop:options.drop===true}));if(id){if($('#operations-panel').hidden)jobsManuallyOpened=false;$('#operations-panel').hidden=false;scheduleJobsHide();}return id;}
   catch(error){toast(error.message);return null;}
 }
 async function fileAction(action,index=state.active){
@@ -110,7 +112,8 @@ async function fileAction(action,index=state.active){
   }catch(error){toast(error.message);}
 }
 function renderJobs(jobs){
-  currentJobs=jobs;$('#job-count').textContent=jobs.filter(activeJob).length;
+  currentJobs=jobs;
+  scheduleJobsHide();$('#job-count').textContent=jobs.filter(activeJob).length;
   const labels={copy:'복사',move:'이동',trash:'휴지통 이동'},statuses={queued:'대기 중',scanning:'파일 확인 중',running:'진행 중',completed:'완료',partial:'일부 실패',failed:'실패',cancelled:'취소됨'};
   $('#job-list').innerHTML=jobs.length?[...jobs].reverse().map(job=>`<article class="job"><div><strong>${labels[job.kind]} · ${statuses[job.status]}</strong>${activeJob(job)?`<button data-cancel="${job.id}">취소</button>`:''}</div><progress max="100" value="${job.status==='completed'?100:job.totalBytes?Math.min(99,100*job.bytes/job.totalBytes):job.total?100*job.done/job.total:0}"></progress><p>${job.done}/${job.total}개 완료${job.skipped?` · ${job.skipped}개 건너뜀`:''}</p>${job.current?`<small title="${escapeHTML(job.current)}">${escapeHTML(job.current)}</small>`:''}${job.errors.length?`<details><summary>${job.errors.length}개 오류 확인</summary>${job.errors.map(error=>`<p>${escapeHTML(error.path)}<br>${escapeHTML(error.message)}</p>`).join('')}</details>`:''}</article>`).join(''):'<div class="empty-jobs">진행 중인 파일 작업이 없습니다.</div>';
   $('#job-list').querySelectorAll('[data-cancel]').forEach(button=>button.onclick=()=>call(api.cancelOperation(button.dataset.cancel)).catch(error=>toast(error.message)));
@@ -169,8 +172,8 @@ function initFeatures(boot){
   $('#add-root').onclick=async()=>{try{const root=await call(api.chooseFolder());if(root&&!state.boot.roots.includes(root))renderRoots([...state.boot.roots,root]);}catch(error){toast(error.message);}};
   $('#add-root-path').onclick=async()=>{try{const roots=await call(api.addRoot($('#root-path').value.trim()));renderRoots(roots);$('#root-path').value='';}catch(error){toast(error.message);}};
   $('#root-path').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();$('#add-root-path').click();}};
-  $('#show-operations').onclick=()=>$('#operations-panel').hidden=!$('#operations-panel').hidden;
-  $('#close-jobs').onclick=()=>$('#operations-panel').hidden=true;
+  $('#show-operations').onclick=()=>{clearTimeout(jobsHideTimer);const panel=$('#operations-panel');panel.hidden=!panel.hidden;jobsManuallyOpened=!panel.hidden;};
+  $('#close-jobs').onclick=()=>{clearTimeout(jobsHideTimer);jobsManuallyOpened=false;$('#operations-panel').hidden=true;};
   $('#clear-jobs').onclick=()=>api.clearOperations?call(api.clearOperations()).catch(error=>toast(error.message)):renderJobs([]);
   setRefreshFocus(boot.smoke||document.hasFocus());
   window.addEventListener('blur',()=>setRefreshFocus(false));

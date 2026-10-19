@@ -10,6 +10,13 @@ const inside = (child, parent) => key(child) === key(parent) || key(child).start
 async function exists(value) { try { await fs.lstat(value); return true; } catch (error) { if(error.code==='ENOENT')return false; throw error; } }
 function abort(signal) { if(signal?.aborted) { const error=new Error('작업을 취소했습니다.');error.name='AbortError';throw error; } }
 
+async function dropSources(sources,destination){
+ const target=key(await fs.realpath(localPath(destination))),parents=new Map(),result=[];
+ for(const source of sources){const parent=path.dirname(source),parentKey=key(parent);if(!parents.has(parentKey))parents.set(parentKey,await fs.realpath(parent));const realParent=parents.get(parentKey);
+  if(key(realParent)!==target&&key(path.join(realParent,path.basename(source)))!==target)result.push(source);
+ }
+ return result;
+}
 async function normalizeSources(values) {
   if(!Array.isArray(values)||!values.length||values.length>10000)throw new Error('파일을 1~10,000개 선택하세요.');
   const unique=[...new Map(values.map(value=>{const p=localPath(value);return [key(p),p];})).values()].sort((a,b)=>a.length-b.length);
@@ -201,4 +208,4 @@ class OperationQueue extends EventEmitter {
   }
 }
 
-module.exports={OperationQueue,renameItem,normalizeSources,inspectTree,inside,copyTree,unchanged};
+module.exports={OperationQueue,renameItem,normalizeSources,dropSources,inspectTree,inside,copyTree,unchanged};

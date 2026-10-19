@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs/promises');
 const os=require('node:os');
 const path=require('node:path');
-const {OperationQueue,renameItem}=require('../src/operations.cjs');
+const {OperationQueue,renameItem,dropSources}=require('../src/operations.cjs');
 
 async function fixture(run){
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'quadfinder-ops-'));
@@ -106,3 +106,7 @@ test('a raced destination is never replaced and the previous target remains reco
  fs.link=async(from,to)=>{if(to.toLowerCase()===canonical)await fs.writeFile(target,'raced','utf8');return original(from,to);};
  try{const queue=new OperationQueue({trash:async()=>assert.fail(),conflict:async()=> 'overwrite'});const result=await perform(queue,{kind:'copy',sources:[source],destination:dst});assert.equal(result.status,'partial');assert.equal(await fs.readFile(target,'utf8'),'raced');const backup=(await fs.readdir(dst)).find(name=>name.startsWith('.quadfinder-'));assert.ok(backup);assert.equal(await fs.readFile(path.join(dst,backup,'previous','a.txt'),'utf8'),'old');}finally{fs.link=original;}
 }));
+
+test('drop ignores the current folder, self-folders and folder aliases while keeping other sources',()=>fixture(async({root,src,dst})=>{const file=path.join(src,'a.txt'),other=path.join(dst,'b.txt');await fs.writeFile(file,'original');await fs.writeFile(other,'other');assert.deepEqual(await dropSources([file],src+path.sep),[]);assert.deepEqual(await dropSources([src],src),[]);assert.deepEqual(await dropSources([file,other],src),[other]);const alias=path.join(root,'alias');await fs.symlink(src,alias,'junction');assert.deepEqual(await dropSources([file],alias),[]);assert.deepEqual(await dropSources([path.join(alias,'a.txt')],src),[]);assert.equal(await fs.readFile(file,'utf8'),'original');}));
+
+test('explicit same-folder copy still creates a separate copy',()=>fixture(async({src})=>{const file=path.join(src,'a.txt');await fs.writeFile(file,'original');const queue=new OperationQueue({trash:async()=>assert.fail('no deletion')});const result=await perform(queue,{kind:'copy',sources:[file],destination:src});assert.equal(result.status,'completed');assert.equal(await fs.readFile(path.join(src,'a (2).txt'),'utf8'),'original');assert.equal(await fs.readFile(file,'utf8'),'original');}));

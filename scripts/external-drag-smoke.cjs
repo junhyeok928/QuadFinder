@@ -23,7 +23,8 @@ async function run({window,root}){
   const internalCode=code.slice(0,code.lastIndexOf('\n'))+'\n[QuadNativeDragInput]::Drag('+handle+','+a.x+','+a.y+','+destination.x+','+destination.y+')';
   await execute('powershell.exe',['-NoProfile','-NonInteractive','-Command',internalCode],{windowsHide:true,timeout:15000});
   for(const name of names){let contents;for(let i=0;i<150;i++){try{contents=await fs.readFile(path.join(internal,name),'utf8');break;}catch{}await pause(60);}assert.equal(contents,'attachment: '+name,'native drag back into another pane');}
-  return {passed:true,internalNativeDrop:true,windowsNativeDrag:true,browserDrop:true,multipleFiles:true,unicodeNames:true,fileContents:true,originalsPreserved:true};
+  const before=await evaluate('currentJobs.length');await evaluate('navigate(1,'+JSON.stringify(folder)+')');await pause(300);await execute('powershell.exe',['-NoProfile','-NonInteractive','-Command',internalCode],{windowsHide:true,timeout:15000});await pause(400);assert.equal(await evaluate('currentJobs.length'),before,'same-folder native drop creates no job');assert.deepEqual((await fs.readdir(folder)).sort(),[...names].sort());
+  return {passed:true,sameFolderDropNoOp:true,internalNativeDrop:true,windowsNativeDrag:true,browserDrop:true,multipleFiles:true,unicodeNames:true,fileContents:true,originalsPreserved:true};
  }finally{window.webContents.startDrag=originalDrag;receiver.destroy();window.setAlwaysOnTop(false);window.focus();}
 }
 module.exports={run};

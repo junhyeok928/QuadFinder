@@ -1,10 +1,12 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session, nativeImage, screen, clipboard } = require('electron');
+// Keep wheel scrolling immediate instead of Chromium's prolonged scroll animation.
+app.commandLine.appendSwitch('disable-smooth-scrolling');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { Worker } = require('node:worker_threads');
 const { localPath, listDirectory, createFolder } = require('./files.cjs');
-const { OperationQueue, renameItem, normalizeSources } = require('./operations.cjs');
+const { OperationQueue, renameItem, normalizeSources, dropSources } = require('./operations.cjs');
 const {UndoManager}=require('./undo.cjs');
 const {handleSquirrel,updateExecutable}=require('./squirrel.cjs');
 const {AppUpdater}=require('./updater.cjs');
@@ -328,7 +330,8 @@ async function readDrives(){
   handle('operations:start',async input=>{
     if(undo.busy)throw new Error('실행 취소 처리가 끝난 뒤 다시 시도하세요.');
     if(!input||!['copy','move','trash'].includes(input.kind))throw new Error('잘못된 작업입니다.');
-    const sources=await normalizeSources(input.sources);
+    let sources=await normalizeSources(input.sources);
+    if(input.drop===true&&input.kind!=='trash'){sources=await dropSources(sources,input.destination);if(!sources.length)return null;}
     if(input.kind==='trash'){
       if(!(smoke&&!interactiveDialogSmoke&&functionSmokeRoot&&sources.every(source=>source.startsWith(functionSmokeRoot+path.sep)))){
         const result=await dialogs.ask({type:'danger',title:sources.length===1?'휴지통으로 이동할까요?':sources.length.toLocaleString()+'개 항목을 휴지통으로 이동할까요?',description:'선택한 항목을 현재 위치에서 제거합니다.',files:await Promise.all(sources.slice(0,5).map(file=>dialogFile(file,''))),note:(sources.length>5?'외 '+(sources.length-5)+'개 항목. ':'')+'휴지통에서 복원할 수 있습니다. 휴지통을 사용할 수 없으면 작업을 중단합니다.',choices:[{action:'trash',label:'휴지통으로 이동'}]});if(result.action!=='trash')return null;
@@ -487,6 +490,7 @@ async function readDrives(){
     result.sidebar=await require('../scripts/sidebar-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile(),appPath:app.getAppPath()});
     result.recent=await require('../scripts/recent-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile()});
     result.marquee=await require('../scripts/marquee-smoke.cjs').run({window,root:functionSmokeRoot});
+    result.scrolling=await require('../scripts/scroll-smoke.cjs').run({window});
     result.mouseHistory=await require('../scripts/history-smoke.cjs').run({window,root:functionSmokeRoot});
     result.undo=await require('../scripts/undo-smoke.cjs').run({window,root:functionSmokeRoot});
     await window.webContents.executeJavaScript(`Promise.all(state.panes.map((_pane,index)=>navigate(index,${JSON.stringify(roots[0])})))`);
