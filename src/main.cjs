@@ -281,7 +281,7 @@ async function readDrives(){
   });
   handle('files:clipboard-write',async input=>{if(!input||!['copy','move'].includes(input.kind)||!Array.isArray(input.paths)||!input.paths.length||input.paths.length>10000)throw new Error('잘못된 클립보드 요청입니다.');return windowsShell.request({mode:'clipboard-write',kind:input.kind,paths:input.paths.map(localPath)});});
   handle('files:clipboard-read',async()=>{const data=await windowsShell.request({mode:'clipboard-read'});return {kind:data.kind,paths:data.paths.filter(value=>{try{localPath(value);return true;}catch{return false;}})};});
-  handle('files:copy-path',async values=>{if(!Array.isArray(values)||values.length>10000)throw new Error('잘못된 경로입니다.');clipboard.writeText(values.map(localPath).map(value=>'"'+value+'"').join('\r\n'));});
+  handle('files:copy-path',async values=>{if(!Array.isArray(values)||values.length>10000)throw new Error('잘못된 경로입니다.');const text=values.map(localPath).map(value=>'"'+value+'"').join('\r\n');await windowsShell.clipboardTask(()=>clipboard.writeText(text));});
   handle('files:shell-menu',async input=>{
     if(shellMenuOpen)throw new Error('열린 Windows 메뉴를 먼저 닫으세요.');
     if(undo.busy&&!input?.verb&&!input?.probe)throw new Error('실행 취소 처리가 끝난 뒤 Windows 메뉴를 여세요.');
@@ -414,6 +414,8 @@ async function readDrives(){
     await capture('design-welcome.png');
     await window.webContents.executeJavaScript(`document.querySelector('#welcome-start').click()`);
     await capture('design-refined.png');
+    const propertiesPreview=await window.webContents.executeJavaScript(`(async()=>{await fileAction('properties',0);const text=document.querySelector('#properties-content').textContent;document.querySelector('#properties-dialog').close('cancel');return text.includes('바이트')&&!text.includes('[native code]');})()`);
+    if(!propertiesPreview)throw Error('File information preview is malformed');
     await window.webContents.executeJavaScript(`(async()=>{document.querySelector('#theme-select').value='light';await document.querySelector('#theme-select').onchange();})()`);
     await new Promise(resolve=>setTimeout(resolve,120));await capture('design-silver-light.png');
     await window.webContents.executeJavaScript(`showFileMenu(0,500,300)`);await new Promise(resolve=>setTimeout(resolve,100));await capture('design-light-menu.png');
@@ -486,6 +488,7 @@ async function readDrives(){
     interactiveDialogSmoke=true;
     try{result.dialogs=await require('../scripts/dialog-smoke.cjs').run({window,root:functionSmokeRoot,output:path.join(app.getAppPath(),'output')});}finally{interactiveDialogSmoke=false;}
     result.interactions=await require('../scripts/interaction-smoke.cjs').run({window,root:functionSmokeRoot});
+    result.audit=await require('../scripts/audit-smoke.cjs').run({window,root:functionSmokeRoot,clipboard});
     result.refresh=await require('../scripts/refresh-smoke.cjs').run({window,root:functionSmokeRoot,notify:paths=>send('files:changed',paths),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},networkRoot:process.env.QUADFINDER_TEST_NETWORK_ROOT,stateFile:stateFile(),rootsFile:rootsFile()});
     result.sidebar=await require('../scripts/sidebar-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile(),appPath:app.getAppPath()});
     result.recent=await require('../scripts/recent-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile()});

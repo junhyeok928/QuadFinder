@@ -34,7 +34,7 @@ function bindRows(index,rows,sorted){
     row.onclick=event=>chooseEntry(index,entry,event.target.closest('.item-check')?{ctrlKey:true}:event,sorted);
     row.ondblclick=event=>{if(!event.target.closest('.item-check'))openEntry(index,entry);};
     row.onkeydown=event=>{
-      if(event.key==='Enter'&&!event.altKey&&!event.ctrlKey){event.preventDefault();openEntry(index,entry);}
+      if(event.key==='Enter'&&!event.altKey&&!event.ctrlKey){event.preventDefault();if(!event.repeat&&!event.isComposing&&event.keyCode!==229)openEntry(index,entry);}
       if(['ArrowDown','ArrowUp','ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();const columns=getComputedStyle(rows).gridTemplateColumns.split(' ').filter(v=>v&&v!=='none').length||1;const step=({ArrowDown:columns,ArrowUp:-columns,ArrowLeft:-1,ArrowRight:1})[event.key];const siblings=[...rows.querySelectorAll('[data-row]')],next=siblings[siblings.indexOf(row)+step];if(next){const item=sorted[Number(next.dataset.row)];if(!event.ctrlKey)chooseEntry(index,item,event,sorted);next.focus();}}
       if(event.key===' '){event.preventDefault();chooseEntry(index,entry,{ctrlKey:true},sorted);}
     };
@@ -104,7 +104,7 @@ async function fileAction(action,index=state.active){
     if(action==='open'&&entries[0]){if(entries[0].directory)await navigate(index,entries[0].path);else await call(api.open(entries[0].path));}
     if(action==='reveal'&&entries[0])await call(api.reveal(entries[0].path));
     if(action==='other'&&entries[0]){if(state.layout===1)applyLayout(2);const target=index===0?1:0;await navigate(target,entries[0].directory?entries[0].path:entries[0].parent);setActive(target);}
-    if(action==='path'&&entries.length&&api.copyPaths){await call(api.copyPaths(entries.map(entry=>entry.path)));toast('경로를 복사했습니다.');}
+    if(action==='path'&&entries.length&&api.copyPaths){await clipboardTask(async()=>{await call(api.copyPaths(entries.map(entry=>entry.path)));fileClipboard=null;});state.panes.forEach((_,i)=>updateSelection(i));toast('경로를 복사했습니다.');}
     if(['properties','openas'].includes(action)&&entries[0]&&api.shellMenu){const rect=pane.element.getBoundingClientRect();await nativeMenu(index,rect.x+40,rect.y+60,false,action==='openas'?'openas':'properties');return;}
     if(action==='properties'&&entries[0]){
       const entry=entries[0];$('#properties-content').innerHTML=`<dl><dt>이름</dt><dd>${escapeHTML(entry.name)}</dd><dt>위치</dt><dd>${escapeHTML(entry.path)}</dd><dt>유형</dt><dd>${escapeHTML(typeLabel(entry))}</dd><dt>크기</dt><dd>${entry.directory?'폴더':`${sizeLabel(entry)} (${entry.size.toLocaleString()} 바이트)`}</dd><dt>수정</dt><dd>${escapeHTML(dateLabel(entry.modified))}</dd></dl>`;$('#properties-dialog').showModal();

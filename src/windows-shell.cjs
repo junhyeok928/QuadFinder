@@ -3,7 +3,8 @@ const fs=require('node:fs');
 const {spawn}=require('node:child_process');
 function executable(){return process.resourcesPath&&fs.existsSync(path.join(process.resourcesPath,'QuadFinder.Shell.exe'))?path.join(process.resourcesPath,'QuadFinder.Shell.exe'):path.resolve(__dirname,'../output/native/QuadFinder.Shell.exe');}
 let clipboardQueue=Promise.resolve();
-function request(input){if(!input.mode.startsWith('clipboard-'))return execute(input);const next=clipboardQueue.catch(()=>{}).then(()=>execute(input));clipboardQueue=next;return next;}
+function clipboardTask(task){const next=clipboardQueue.catch(()=>{}).then(task);clipboardQueue=next;return next;}
+function request(input){return input.mode.startsWith('clipboard-')?clipboardTask(()=>execute(input)):execute(input);}
 function execute(input){return new Promise((resolve,reject)=>{
   const child=spawn(executable(),[],{windowsHide:true,stdio:['pipe','pipe','pipe']});let output='',error='';
   const timer=input.mode==='menu'?null:setTimeout(()=>{child.kill();reject(new Error('Windows 셸 응답 시간이 초과되었습니다.'));},15000);
@@ -13,4 +14,4 @@ function execute(input){return new Promise((resolve,reject)=>{
   child.on('close',()=>{clearTimeout(timer);try{const result=JSON.parse(output.replace(/^\uFEFF/,''));if(result.ok)resolve(result.value);else reject(new Error(result.error));}catch(value){reject(new Error(error||value.message));}});
   child.stdin.end(JSON.stringify(input));
 });}
-module.exports={request,executable};
+module.exports={request,executable,clipboardTask};
