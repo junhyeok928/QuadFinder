@@ -179,7 +179,10 @@ function renderRows(index) {
     bindRows(index,rows,sorted);
     if(sorted.length>(tab.limit||2000)){const more=document.createElement('button');more.className='load-more';more.textContent='다음 2,000개 표시';more.onclick=()=>{tab.limit=(tab.limit||2000)+2000;renderRows(index);};rows.append(more);}
   }
-  element.querySelector('.item-count').textContent = tab.search ? `${(tab.total||0).toLocaleString()}개 검색 결과${tab.total>1000?' · 상위 1,000개 표시':''}` : `${sorted.length.toLocaleString()}개 항목${tab.entries.length>2000?' · 상위 2,000개 표시':''}`;
+  if(tab.search&&!tab.loading&&tab.entries.length<tab.total){const more=document.createElement('button');more.className='load-more search-more';more.textContent=tab.loadingMore?'검색 결과 불러오는 중…':'다음 1,000개 불러오기';more.disabled=!!tab.loadingMore;more.onclick=()=>loadMoreSearch(index);rows.append(more);}
+  const shown=rows.querySelectorAll('.file-row').length;
+  element.querySelector('.item-count').textContent = tab.search ? `${(tab.total||0).toLocaleString()}개 검색 결과 · ${tab.entries.length.toLocaleString()}개 불러옴 · ${shown.toLocaleString()}개 표시` : `${sorted.length.toLocaleString()}개 항목${shown<sorted.length?` · ${shown.toLocaleString()}개 표시`:''}`;
+  element.querySelector('.item-count').title=tab.search?'정렬과 전체 선택은 불러온 결과에 적용됩니다.':'Ctrl+A: 숨김 설정을 반영한 폴더 전체 선택 · Ctrl+Shift+A: 표시된 항목만 선택';
   rows.querySelectorAll('[data-group]').forEach(button=>button.onclick=event=>{event.stopPropagation();const set=tab.collapsed;set.has(button.dataset.group)?set.delete(button.dataset.group):set.add(button.dataset.group);renderRows(index);});
   updateSelection(index);
 }
@@ -238,14 +241,28 @@ async function refreshTab(index){
   finally{tab.refreshing=false;}
 }
 async function refreshSearch(){
-  const pane=state.panes[0],tab=tabOf(pane),query=state.query;if(!query||!tab.search||tab.loading)return;
+  const pane=state.panes[0],tab=tabOf(pane),query=state.query;if(!query||!tab.search||tab.loading||tab.loadingMore)return;
   const token=++state.request;
-  try{const result=await call(api.search(query,state.filter));if(token!==state.request||tabOf(pane)!==tab||!tab.search||$('#search').value.trim()!==query)return;
+  try{const result=await call(api.search(query,state.filter,tab.searchLimit||1000));if(result.cancelled||token!==state.request||tabOf(pane)!==tab||!tab.search||$('#search').value.trim()!==query)return;
     if(!refreshFocused){queueRefresh([]);return;}
     const changed=result.total!==tab.total||!ChangePolicy.sameEntries(tab.entries,result.entries);tab.entries=result.entries;tab.total=result.total;
     if(!changed)return;const existing=new Set(result.entries.map(entry=>entry.path));tab.selection=new Set([...selection(tab)].filter(value=>existing.has(value)));
     const table=pane.element.querySelector('.file-table'),top=table.scrollTop,left=table.scrollLeft,focused=document.activeElement.closest?.('.file-row'),focusedPath=focused&&pane.element.contains(focused)?focused.title:null;renderRows(0);bindViewFeatures(0);table.scrollTop=top;table.scrollLeft=left;if(focusedPath)Array.from(table.querySelectorAll('.file-row')).find(row=>row.title===focusedPath)?.focus({preventScroll:true});
   }catch(error){toast(`검색 갱신 실패: ${error.message}`);}
+}
+async function loadMoreSearch(index){
+  const pane=state.panes[index],tab=tabOf(pane),query=state.query,filter=state.filter;
+  if(!tab.search||tab.loading||tab.loadingMore)return;
+  const token=++state.request,limit=(tab.searchLimit||1000)+1000;
+  tab.loadingMore=true;tab.moreRequest=token;renderRows(index);
+  try{
+    const result=await call(api.search(query,filter,limit));
+    if(result.cancelled||token!==state.request||tabOf(pane)!==tab||!tab.search||$('#search').value.trim()!==query)return;
+    const existing=new Set(result.entries.map(entry=>entry.path));
+    tab.entries=result.entries;tab.total=result.total;tab.searchLimit=limit;tab.limit=Math.max(tab.limit||2000,limit);
+    tab.selection=new Set([...selection(tab)].filter(value=>existing.has(value)));
+  }catch(error){if(token===state.request)toast(`검색 결과를 더 불러오지 못했습니다: ${error.message}`);}
+  finally{if(tab.moreRequest===token)tab.loadingMore=false;if(token===state.request&&tabOf(pane)===tab&&tab.search){const table=pane.element.querySelector('.file-table'),top=table.scrollTop,left=table.scrollLeft;renderRows(index);bindViewFeatures(index);table.scrollTop=top;table.scrollLeft=left;}}
 }
 async function load(index,preserve=false) { const tab=tabOf(state.panes[index]);if(preserve)return refreshTab(index);if(tab.search)return runSearch();return navigate(index,tab.path,false,false,false); }
 function newTab(index) { const pane=state.panes[index]; if (pane.tabs.length>=20) return toast('패널당 최대 20개 탭을 사용할 수 있습니다.'); pane.tabs.push(makeTab(tabOf(pane).path,tabOf(pane).view)); pane.active=pane.tabs.length-1; setActive(index); renderPane(index); load(index); save(); }
@@ -259,9 +276,9 @@ async function runSearch() {
   state.query=$('#search').value.trim();
   if (!state.query) { state.panes.forEach((pane,index)=>{ pane.tabs.forEach(tab=>tab.search=false); renderPane(index); load(index); }); return; }
   const pane=state.panes[0];
-  const tab=tabOf(pane); tab.search=true; tab.loading=true; tab.error=null; tab.request++;
+  const tab=tabOf(pane); tab.search=true; tab.loading=true; tab.loadingMore=false;tab.searchLimit=1000;tab.limit=2000;tab.error=null; tab.request++;
   setActive(0); renderPane(0);syncSidebar();
-  try { const result=await call(api.search(state.query,state.filter)); if(token!==state.request||tabOf(pane)!==tab||!tab.search)return; tab.entries=result.entries;tab.selection=new Set([...selection(tab)].filter(value=>result.entries.some(entry=>entry.path===value)));tab.total=result.total; tab.loading=false; renderPane(0); }
+  try { const result=await call(api.search(state.query,state.filter)); if(result.cancelled||token!==state.request||tabOf(pane)!==tab||!tab.search)return; tab.entries=result.entries;const existing=new Set(result.entries.map(entry=>entry.path));tab.selection=new Set([...selection(tab)].filter(value=>existing.has(value)));tab.total=result.total; tab.loading=false; renderPane(0); }
   catch(error) { if(token!==state.request)return; tab.error=error.message; tab.loading=false; renderPane(0); }
 }
 function renderIndexDiagnostics(status){
@@ -270,12 +287,14 @@ function renderIndexDiagnostics(status){
   $('#index-problems').innerHTML=(status.problems||[]).map(item=>`<p><strong>${escapeHTML(item.code)}</strong> ${escapeHTML(item.path)}</p>`).join('')||'<p>현재 확인된 접근 오류가 없습니다.</p>';
   if(status.problemCount>200)$('#index-problems').insertAdjacentHTML('beforeend',`<p>총 ${status.problemCount}개 중 200개 표시</p>`);
   if(status.elevationError)$('#index-problems').insertAdjacentHTML('afterbegin',`<p>${escapeHTML(status.elevationError)} 일반 권한으로 계속합니다.</p>`);
+  if(status.watchProblems?.length)$('#index-problems').insertAdjacentHTML('afterbegin',`<p>파일 변경 감시 연결을 다시 시도하고 있습니다. 감시가 복구되면 누락된 변경을 확인합니다.</p>`+status.watchProblems.map(item=>`<p><strong>${escapeHTML(item.code)}</strong> ${escapeHTML(item.path)} · ${Math.ceil(item.retryMs/1000)}초 간격으로 재연결</p>`).join(''));
   $('#elevate-index').disabled=!api.elevateIndex||status.elevated||status.awaitingElevation;
 }
 function updateIndex(status) {
   state.indexStatus=status;
   const issues=status.issues||{};
   $('#index-status').textContent=status.error?'검색 인덱스 오류':status.awaitingElevation?'관리자 승인 대기 중…':status.indexing?`파일 인덱싱 중 · ${(status.scanned||0).toLocaleString()}개 폴더 확인`:status.problemCount?`확인 완료 · 권한 ${issues.denied||0} · 시간 초과 ${issues.timedOut||0} · 기타 ${(issues.missing||0)+(issues.other||0)}`:status.limited?'인덱스 한도 도달':'인덱스 준비 완료';
+  if(status.watchProblems?.length)$('#index-status').textContent+=' · 변경 감시 재연결 중';
   $('#index-count').textContent=`${status.count.toLocaleString()}개 파일·폴더`;
   $('.status-dot').classList.toggle('busy',status.indexing);
   $('#index-status').title=status.error||[status.current,'클릭하여 상세 오류와 관리자 인덱싱 보기 · 네트워크 폴더는 제외',...(status.problems||status.warnings||[]).slice(0,8).map(item=>`${item.code}: ${item.path}`)].filter(Boolean).join('\n');

@@ -8,10 +8,12 @@ async function run({window}){
       const dialog=document.querySelector('#index-dialog'),text=dialog.textContent;
       const diagnostics=dialog.open&&text.includes('250,010')&&text.includes('권한 부족 2개')&&text.includes('시간 초과 1개')&&text.includes('경로 사라짐 1개');
       const escaped=!dialog.querySelector('img')&&text.includes('<img src=x>');
+      updateIndex({indexing:false,count:250010,watchProblems:[{code:'EIO',path:'C:\\\\lost <img src=x>',retryMs:2000}]});
+      const watchRecovery=document.querySelector('#index-status').textContent.includes('재연결')&&dialog.textContent.includes('누락된 변경')&&!dialog.querySelector('img');
       updateIndex({indexing:true,count:250010,issues:{},problems:[],elevated:true});
       const elevated=document.querySelector('#elevate-index').disabled&&document.querySelector('#index-summary').textContent.includes('관리자 도우미');
       document.querySelector('#close-index').click();
-      return {passed:diagnostics&&escaped&&elevated,diagnostics,escaped,elevated,closed:!dialog.open};
+      return {passed:diagnostics&&escaped&&elevated&&watchRecovery,diagnostics,escaped,elevated,watchRecovery,closed:!dialog.open};
     }finally{if(document.querySelector('#index-dialog').open)document.querySelector('#index-dialog').close();updateIndex(original);}
   })()`);
   assert(result.passed&&result.closed,JSON.stringify(result));return result;

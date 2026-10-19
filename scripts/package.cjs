@@ -6,7 +6,7 @@ async function build(){
   const {version}=require('../package.json');
   const native=require('./build-native.cjs').buildNative();
   const outputs=await packager({dir:'.',name:'QuadFinder',icon:'assets/app-icon.ico',platform:'win32',arch:'x64',out:`release/${version}`,extraResource:[native,path.join(path.dirname(native),'QuadFinder.Index.exe')],overwrite:true,asar:true,prune:false,
-    ignore:name=>Boolean(name)&&!/^\/(package\.json$|src(?:\/|$)|assets(?:\/|$))/.test(name.replaceAll('\\','/')),
+    ignore:name=>Boolean(name)&&!/^\/(package\.json$|src(?:\/|$)|assets(?:$|\/app-icon\.(?:ico|png|svg)$))/.test(name.replaceAll('\\','/')),
     appCopyright:'QuadFinder contributors'});
   for(const output of outputs){
     const root=path.resolve(output),before=await size(root),locales=path.join(root,'locales');

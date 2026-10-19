@@ -12,6 +12,13 @@ const terminalJobs=new Set();
 const activeJob=job=>['queued','scanning','running'].includes(job.status);
 function selection(tab){if(!(tab.selection instanceof Set))tab.selection=new Set(tab.selected?[tab.selected]:[]);return tab.selection;}
 function selectedEntries(index=state.active){const tab=tabOf(state.panes[index]);return tab.entries.filter(entry=>selection(tab).has(entry.path));}
+function selectAllEntries(index=state.active,shownOnly=false){
+  const pane=state.panes[index],tab=tabOf(pane);if(tab.loading)return;
+  const entries=shownOnly?[...pane.element.querySelectorAll('.file-row')].map(row=>pane.visibleEntries[Number(row.dataset.row)]).filter(Boolean):visibleSorted(index);
+  tab.selection=new Set(entries.map(entry=>entry.path));tab.selected=entries[0]?.path||null;tab.anchor=tab.selected;updateSelection(index);
+  const scope=shownOnly?'표시된 항목':tab.search?'불러온 검색 결과':'폴더 전체';
+  toast(`${scope} ${entries.length.toLocaleString()}개 선택${tab.search&&tab.entries.length<tab.total?' · 아직 불러오지 않은 검색 결과는 제외됩니다.':''}`);
+}
 function updateSelection(index){
   const pane=state.panes[index],tab=tabOf(pane),selected=selection(tab);
   pane.element.querySelectorAll('.file-row').forEach(row=>{const entry=pane.visibleEntries[Number(row.dataset.row)];const isSelected=selected.has(entry.path);row.classList.toggle('selected',isSelected);row.setAttribute('aria-selected',isSelected);const check=row.querySelector('.item-check');if(check)check.checked=isSelected;row.classList.toggle('cut',fileClipboard?.kind==='move'&&fileClipboard.paths.includes(entry.path));});
@@ -147,8 +154,16 @@ function initFeatures(boot){
   const updateUndo=value=>{undoState=value;const button=$('#undo-operation');button.disabled=!value?.available&&!value?.busy;button.textContent=value?.busy?'처리 중단':'실행 취소';button.title=value?.busy?'내용 검증 또는 실행 취소 처리를 중단합니다.':value?.label?`${value.label} 실행 취소 (Ctrl+Z) · 이번 실행에서 최근 20개 작업`:'실행 취소 (Ctrl+Z) · 이번 실행에서 완료한 복사·이동·이름 변경';};
   updateUndo(boot.undo);api.onUndo?.(updateUndo);
   let updateState=boot.updater||{phase:'portable'};
-  const updateUpdater=value=>{updateState=value;const button=$('#check-updates');button.textContent=value.phase==='preview'?'미리보기':value.phase==='ready'?'재시작하여 업데이트':['checking','downloading'].includes(value.phase)?'업데이트 중…':'업데이트';button.disabled=['preview','checking','downloading'].includes(value.phase);button.title=value.message||'업데이트 확인';};updateUpdater(updateState);api.onUpdater?.(updateUpdater);
-  $('#check-updates').onclick=async()=>{try{if(!api.checkUpdates)return toast('설치 버전에서 업데이트를 사용할 수 있습니다.');if(updateState.phase==='ready'){await call(api.installUpdate());return;}if(['portable','manual'].includes(updateState.phase)){await call(api.openReleases());return;}const next=await call(api.checkUpdates());updateUpdater(next);if(['current','error'].includes(next.phase))toast(next.message);}catch(error){toast(error.message);}};
+  const updateUpdater=value=>{
+    updateState=value;const button=$('#check-updates');
+    button.textContent=value.phase==='preview'?'미리보기':value.phase==='ready'?'재시작하여 업데이트':value.phase==='checking'?'업데이트 확인 중…':value.phase==='downloading'?'업데이트 중…':'업데이트';
+    button.disabled=['preview','checking','downloading'].includes(value.phase);
+    const available=!!value.available||['available','downloading','ready'].includes(value.phase);
+    button.classList.toggle('has-update',available);
+    button.title=value.message||'업데이트 확인';
+    button.setAttribute('aria-label',available?`${button.textContent} · 새 버전 있음${value.latestVersion?' · '+value.latestVersion:''}`:button.textContent);
+  };updateUpdater(updateState);api.onUpdater?.(updateUpdater);
+  $('#check-updates').onclick=async()=>{try{if(!api.checkUpdates)return toast('설치 버전에서 업데이트를 사용할 수 있습니다.');if(updateState.phase==='ready'){await call(api.installUpdate());return;}if(updateState.manualDownload||['portable','manual','available'].includes(updateState.phase)){await call(api.openReleases());return;}const next=await call(api.checkUpdates());updateUpdater(next);if(['current','error'].includes(next.phase))toast(next.message);}catch(error){toast(error.message);}};
   $('#undo-operation').onclick=async()=>{if(!api.undo)return;if(undoState?.busy){if(api.cancelUndo)await call(api.cancelUndo());return;}$('#undo-operation').disabled=true;try{await call(api.undo());queueRefresh();toast('작업을 되돌렸습니다.');}catch(error){toast(error.message);} };
   const updateZoom=factor=>{$('#zoom-reset').textContent=`${Math.round(factor*100)}%`;};
   updateZoom(boot.zoomFactor||1);api.onZoom?.(updateZoom);
@@ -194,7 +209,7 @@ function initFeatures(boot){
     if(event.key==='F2')action='rename';if(event.key==='Delete')action='trash';if(event.altKey&&event.key==='Enter')action='properties';
     if(event.ctrlKey&&event.shiftKey&&key==='n')action='mkdir';if(event.key==='F6')action='move-to';
     if(action){event.preventDefault();fileAction(action);}
-    if(event.ctrlKey&&key==='a'){event.preventDefault();const pane=state.panes[state.active],tab=tabOf(pane);tab.selection=new Set((pane.visibleEntries||[]).slice(0,tab.limit||2000).map(entry=>entry.path));updateSelection(state.active);}
+    if(event.ctrlKey&&key==='a'){event.preventDefault();selectAllEntries(state.active,event.shiftKey);}
     if(event.ctrlKey&&key==='w'){event.preventDefault();const pane=state.panes[state.active];if(pane.tabs.length>1){pane.tabs.splice(pane.active,1);pane.active=Math.min(pane.active,pane.tabs.length-1);renderPane(state.active);load(state.active);save();}}
   });
 }

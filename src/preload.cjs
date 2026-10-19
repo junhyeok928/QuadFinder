@@ -38,7 +38,7 @@ if(process.argv.includes('--quadfinder-design-preview')) {
   addRoot:path=>ipcRenderer.invoke('roots:add',path),
   startFileDrag:paths=>ipcRenderer.send('files:drag-start',paths),
   dropPaths:files=>files.map(file=>require('electron').webUtils.getPathForFile(file)),
-  search: (query, filter) => ipcRenderer.invoke('search', query, filter),
+  search: (query, filter, limit=1000) => ipcRenderer.invoke('search', query, filter, limit),
   reindex: () => ipcRenderer.invoke('index:rebuild'),
   elevateIndex:()=>ipcRenderer.invoke('index:elevate'),
   saveLayout: state => ipcRenderer.invoke('layout:save', state),

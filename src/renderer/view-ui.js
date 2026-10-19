@@ -51,11 +51,13 @@ function modernFileMenu(index,x,y,background=false){
   menu.innerHTML=commandBar+(background?
     submenu('view','보기')+submenu('sort','정렬 기준')+submenu('group','분류 방법')+menuButton('refresh','새로 고침','F5')+'<hr>'+menuButton('paste','붙여넣기','Ctrl+V',true)+menuButton('mkdir','새 폴더','Ctrl+Shift+N',tab.search):
     menuButton('open','열기','Enter',!entries.length)+(entries.length===1&&!entries[0].directory?menuButton('openas','연결 프로그램'):'' )+menuButton('path','경로로 복사','Ctrl+Shift+C',!entries.length)+menuButton('properties','속성','Alt+Enter',!entries.length))+
+    '<hr>'+menuButton('select-all',tab.search?'불러온 검색 결과 전체 선택':'폴더 전체 선택','Ctrl+A',tab.loading)+menuButton('select-shown','표시된 항목만 선택','Ctrl+Shift+A',tab.loading)+
     '<hr>'+menuButton('more','더 많은 옵션 표시','Shift+F10',!api.shellMenu||(background&&tab.search));
   positionMenu(menu,x,y);
   menu.querySelectorAll('[data-context]').forEach(button=>button.onclick=()=>{
     closeFileMenu();const action=button.dataset.context;
     if(['view','sort','group'].includes(action)){menu.hidden=false;showFileSubmenu(index,menu,button,action);}
+    else if(action==='select-all'||action==='select-shown')selectAllEntries(index,action==='select-shown');
     else if(action==='more')nativeMenu(index,x,y,background,undefined,true);
     else {if(menu.returnFocus?.isConnected)menu.returnFocus.focus({preventScroll:true});fileAction(action,index);}
   });

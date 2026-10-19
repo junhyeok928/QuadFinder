@@ -34,8 +34,9 @@ async function pump(){
 }
 async function search(message){
   const generation=++searchGeneration,results=[];let total=0,processed=0;
+  const limit=Number.isSafeInteger(message.limit)&&message.limit>0?message.limit:1000;
   if(message.query?.trim())for(const entry of store.candidates(message.query)){
-    if(matches(entry,message.query,message.filter)){total++;if(results.length<1000)results.push(entry);}
+    if(matches(entry,message.query,message.filter)){total++;if(results.length<limit)results.push(entry);}
     if(++processed%2048===0){await new Promise(resolve=>setImmediate(resolve));if(generation!==searchGeneration){send({type:'results',id:message.id,entries:[],total:0,indexing,cancelled:true});return;}}
   }
   send({type:'results',id:message.id,entries:results,total,indexing});

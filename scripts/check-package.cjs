@@ -4,6 +4,9 @@ const path=require('node:path');
 async function check(){
  const asar=require(require.resolve('@electron/asar',{paths:[path.dirname(require.resolve('@electron/packager'))]}));const {version}=require('../package.json');const root=path.resolve('release',version,'QuadFinder-win32-x64'),archive=path.join(root,'resources','app.asar');
  const files=asar.listPackage(archive);assert.ok(files.includes('\\src\\renderer\\marquee.js')||files.includes('/src/renderer/marquee.js'));
+ const normalized=files.map(file=>file.replaceAll('\\','/').replace(/^\//,''));
+ assert.ok(!normalized.includes('assets/installer-wizard.bmp'),'Installer artwork must not ship in the app');
+ for(const name of ['ico','png','svg'])assert.ok(normalized.includes(`assets/app-icon.${name}`),'Missing app icon: '+name);
  for(const file of files){const relative=file.replaceAll('\\','/').replace(/^\//,'');assert.ok(/^(src(?:\/|$)|assets(?:\/|$)|package\.json$)/.test(relative),'Unnecessary app file: '+relative);if(relative!=='package.json'&&fs.statSync(path.resolve(relative)).isFile())assert.deepEqual(asar.extractFile(archive,path.normalize(relative)),fs.readFileSync(relative),'Stale packaged source: '+relative);}
  const pkg=JSON.parse(asar.extractFile(archive,'package.json'));assert.equal(pkg.version,version);assert.equal(pkg.main,'src/main.cjs');
  assert.deepEqual(fs.readdirSync(path.join(root,'locales')).sort(),['en-US.pak','ko.pak']);

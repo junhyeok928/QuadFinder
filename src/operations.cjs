@@ -137,7 +137,9 @@ class OperationQueue extends EventEmitter {
   clear(){this.jobs=this.jobs.filter(job=>['queued','scanning','running'].includes(job.status));this.emit('update',this.snapshot());}
   async drain(){
     if(this.running)return;this.running=true;
-    try { for(const job of this.jobs)if(job.status==='queued')await this.run(job); }
+    // clear() and history trimming can replace the array while a job awaits I/O.
+    // Always select the next job from the current queue.
+    try { let job;while((job=this.jobs.find(item=>item.status==='queued')))await this.run(job); }
     finally {this.running=false;this.emit('update',this.snapshot());}
   }
   async run(job){

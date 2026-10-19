@@ -16,6 +16,23 @@ function perform(queue,input){return new Promise((resolve,reject)=>{
   queue.on('update',function update(jobs){const job=jobs.find(item=>item.id===id);if(job&&!['queued','scanning','running'].includes(job.status)){clearTimeout(timer);queue.off('update',update);resolve(job);}});
   id=queue.enqueue(input);
 });}
+test('clearing history during a running job does not strand newly queued work',()=>fixture(async({src})=>{
+  const file=path.join(src,'a.txt');await fs.writeFile(file,'a');
+  let release,started;
+  const blocked=new Promise(resolve=>release=resolve),entered=new Promise(resolve=>started=resolve);
+  let calls=0;
+  const queue=new OperationQueue({trash:async()=>{if(++calls===1){started();await blocked;}}});
+  queue.enqueue({kind:'trash',sources:[file]});
+  await entered;
+  queue.clear();
+  queue.enqueue({kind:'trash',sources:[file]});
+  // Let the enqueue callback run while the first job still owns the drain.
+  await new Promise(resolve=>setImmediate(resolve));
+  const idle=new Promise(resolve=>{queue.on('update',()=>{if(!queue.running)resolve();});});
+  release();await idle;
+  assert.equal(calls,2);
+  assert.ok(queue.snapshot().every(job=>job.status==='completed'));
+}));
 test('nested copies preserve contents and existing collisions use a new name',()=>fixture(async({src,dst})=>{
   await fs.mkdir(path.join(src,'자료'));await fs.writeFile(path.join(src,'자료','문서.txt'),'한국어');await fs.mkdir(path.join(dst,'자료'));await fs.writeFile(path.join(dst,'자료','keep.txt'),'keep');
   const queue=new OperationQueue({trash:async()=>{throw new Error('not expected');}});

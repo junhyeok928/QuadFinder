@@ -10,7 +10,7 @@ const { OperationQueue, renameItem, normalizeSources, dropSources } = require('.
 const {UndoManager}=require('./undo.cjs');
 const {handleSquirrel,updateExecutable}=require('./squirrel.cjs');
 const {AppUpdater}=require('./updater.cjs');
-const { watch } = require('node:fs');
+const {WatchManager}=require('./watch-manager.cjs');
 const windowsShell=require('./windows-shell.cjs');
 const {preview}=require('./file-preview.cjs');
 const {normalize:normalizeNavigation}=require('./navigation-state.cjs');
@@ -60,14 +60,20 @@ let updater;
 let functionSmokeRoot=null,interactiveDialogSmoke=false;
 let indexTimer, changedTimer, rootsSave=Promise.resolve();
 const changedPaths=new Set(),changedFolders=new Set();
-let refreshAll=false,watchedFolderKey='';
+let refreshAll=false,recoveryTimer;
 const {key:pathKey}=require('./change-policy.cjs');
 const {indexable,networkPath}=require('./index-paths.cjs');
 let networkDrives=[];
 let automaticRoots=[];
 let indexElevated=false,indexSwitching=false;
 const indexExclusions=()=>[app.getPath('userData'),...networkDrives];
-const rootWatchers=[],folderWatchers=[];
+const rootWatchers=new WatchManager({recursive:true,onChange:(_root,changed)=>{if(indexable(changed,roots,indexExclusions()))filesChanged([changed]);},onStatus:publishWatchStatus,onRecovered:root=>{
+  filesChanged([root]);clearTimeout(recoveryTimer);
+  // Changes below existing subfolders may have been missed during the outage.
+  recoveryTimer=setTimeout(()=>startIndex(),1000);
+}});
+const folderWatchers=new WatchManager({onChange:(_root,changed)=>filesChanged([changed]),onStatus:publishWatchStatus,onRecovered:root=>filesChanged([root])});
+function publishWatchStatus(){indexStatus={...indexStatus,watchProblems:[...rootWatchers.snapshot(),...folderWatchers.snapshot()]};send('index:status',indexStatus);}
 const stateFile = () => path.join(app.getPath('userData'), 'layout.json');
 const rootsFile = () => path.join(app.getPath('userData'),'search-roots.json');
 function send(channel,value){if(window&&!window.isDestroyed())window.webContents.send(channel,value);}
@@ -81,13 +87,8 @@ function filesChanged(values){
 }
 function scheduleIndex(){clearTimeout(indexTimer);indexTimer=setTimeout(()=>{const paths=[...changedPaths];changedPaths.clear();if(paths.length&&worker)worker.postMessage({type:'update',paths});},1000);}
 function watchRoots(){
-  rootWatchers.splice(0).forEach(watcher=>watcher.close());
   if(smoke||designPreview)return;
-  for(const root of roots.filter(root=>!networkPath(root,networkDrives)))try{const watcher=watch(root,{recursive:true,persistent:false},(_event,name)=>{
-    const changed=name?path.resolve(root,String(name)):root;
-    if(!indexable(changed,roots,indexExclusions()))return;
-    filesChanged([changed]);
-  });watcher.on('error',()=>{});rootWatchers.push(watcher);}catch{}
+  rootWatchers.setPaths(roots.filter(root=>!networkPath(root,networkDrives)));
 }
 async function saveRoots(){
   const content=JSON.stringify({roots},null,2);
@@ -130,14 +131,14 @@ function startIndex() {
   if(worker){worker.postMessage({type:'rebuild',roots});return;}
   for (const { resolve } of pending.values()) resolve({ entries: [], total: 0, indexing: true });
   pending.clear();
-  indexStatus = { indexing: true, count: 0, skipped: 0, limited: false };
+  indexStatus = { indexing: true, count: 0, skipped: 0, limited: false,watchProblems:indexStatus.watchProblems||[] };
   worker = new Worker(path.join(__dirname, 'index-worker.cjs'), { workerData: { roots,excludePaths:indexExclusions(),elevated:indexElevated,dbPath:smoke?null:path.join(app.getPath('userData'),'index.sqlite'),cachePath:smoke?null:path.join(app.getPath('userData'),'index-cache.json') } });
   worker.on('message', message => {
     if(message.type==='stopped')return;
     if (message.type === 'results') {
       enrich(message.entries).catch(()=>message.entries).then(entries=>pending.get(message.id)?.resolve({...message,entries})).finally(()=>pending.delete(message.id));
     } else {
-      indexStatus = message.type === 'error' ? { ...indexStatus, indexing: false, error: message.message } : message;
+      indexStatus = message.type === 'error' ? { ...indexStatus, indexing: false, error: message.message } : {...message,watchProblems:indexStatus.watchProblems||[]};
       if(message.type==='status'&&typeof message.elevated==='boolean')indexElevated=message.elevated;
       if (!window.isDestroyed()) window.webContents.send('index:status', indexStatus);
     }
@@ -241,7 +242,7 @@ async function setup() {
   window.webContents.on('render-process-gone',()=>dialogs.clear());
   window.webContents.on('did-start-loading',()=>dialogs.clear());
   window.on('closed',()=>dialogs.clear());
-  updater=new AppUpdater({manual:app.isPackaged&&require('node:fs').existsSync(path.join(path.dirname(process.execPath),'quadfinder-install.json')),preview:app.isPackaged&&require('node:fs').existsSync(path.join(path.dirname(process.execPath),'quadfinder-preview.json')),native:require('electron').autoUpdater,version:app.getVersion(),installed:app.isPackaged&&require('node:fs').existsSync(updateExecutable(process.execPath)),canInstall:()=>!operations.active()&&!operations.running&&!undo.busy});
+  updater=new AppUpdater({notifyReleases:app.isPackaged,manual:app.isPackaged&&require('node:fs').existsSync(path.join(path.dirname(process.execPath),'quadfinder-install.json')),preview:app.isPackaged&&require('node:fs').existsSync(path.join(path.dirname(process.execPath),'quadfinder-preview.json')),native:require('electron').autoUpdater,version:app.getVersion(),installed:app.isPackaged&&require('node:fs').existsSync(updateExecutable(process.execPath)),canInstall:()=>!operations.active()&&!operations.running&&!undo.busy});
   updater.on('update',value=>send('updater:changed',value));updater.start(process.argv.includes('--squirrel-firstrun'));
   window.on('close',event=>{
     if(operations.active()||undo.busy){
@@ -321,10 +322,8 @@ async function readDrives(){
   handle('files:watch',async values=>{
     if(!Array.isArray(values)||values.length>4)throw new Error('잘못된 폴더 목록입니다.');
     const directories=[...new Map(values.map(localPath).map(value=>[pathKey(value),value])).values()];
-    const signature=directories.map(pathKey).sort().join('\n');if(signature===watchedFolderKey)return;watchedFolderKey=signature;
-    folderWatchers.splice(0).forEach(watcher=>watcher.close());
     if(smoke)return;
-    for(const value of directories)try{const watcher=watch(value,{persistent:false},(_event,name)=>filesChanged([name?path.resolve(value,String(name)):value]));watcher.on('error',()=>{watchedFolderKey='';});folderWatchers.push(watcher);}catch{watchedFolderKey='';}
+    folderWatchers.setPaths(directories);
   });
   handle('files:paths',async values=>{if(!Array.isArray(values)||values.length>10000)throw new Error('잘못된 경로 목록입니다.');return values.map(localPath);});
   handle('operations:start',async input=>{
@@ -353,11 +352,12 @@ async function readDrives(){
     if(!(await fs.stat(root)).isDirectory())throw new Error('검색할 폴더를 입력하세요.');
     if(!roots.some(existing=>require('./index-paths.cjs').within(root,existing))){roots.push(root);await saveRoots();}return roots;
   });
-  handle('search', (query, filter) => {
+  handle('search', (query, filter, limit=1000) => {
     if(indexSwitching)throw new Error('인덱싱 권한을 전환하는 중입니다. 잠시 후 다시 검색하세요.');
     if (typeof query !== 'string' || query.length > 500 || !['all', 'documents', 'images', 'recent'].includes(filter)) throw new Error('잘못된 검색 조건입니다.');
+    if(!Number.isSafeInteger(limit)||limit<1)throw new Error('잘못된 검색 결과 개수입니다.');
     if(!worker)startIndex();
-    return new Promise((resolve, reject) => { const id = ++searchId;const timer=setTimeout(()=>{pending.delete(id);reject(new Error('검색 응답 시간이 초과되었습니다. 다시 검색해 주세요.'));},20000);pending.set(id, { resolve:value=>{clearTimeout(timer);resolve(value);}, reject:error=>{clearTimeout(timer);reject(error);} }); worker.postMessage({ id, query, filter }); });
+    return new Promise((resolve, reject) => { const id = ++searchId;const timer=setTimeout(()=>{pending.delete(id);reject(new Error('검색 응답 시간이 초과되었습니다. 다시 검색해 주세요.'));},20000);pending.set(id, { resolve:value=>{clearTimeout(timer);resolve(value);}, reject:error=>{clearTimeout(timer);reject(error);} }); worker.postMessage({ id, query, filter, limit }); });
   });
   handle('index:rebuild', () => { startIndex(); return roots; });
   handle('index:elevate',async()=>{
@@ -446,6 +446,8 @@ async function readDrives(){
     while (Date.now() < deadline && !(await window.webContents.executeJavaScript('window.__quadfinderReady === true'))) await new Promise(resolve => setTimeout(resolve, 100));
     setZoom(1,false);
     await new Promise(resolve=>setTimeout(resolve,100));
+    await require('../scripts/updater-smoke.cjs').run({window,updater,output:path.join(app.getAppPath(),'output')});
+    if(process.argv.includes('--updater-test')){app.exit(0);return;}
     const result = await window.webContents.executeJavaScript(`(async () => {
       const waitFor = async predicate => { const deadline = Date.now()+10000; while(!predicate()){if(Date.now()>deadline)throw new Error('UI wait timeout');await new Promise(resolve=>setTimeout(resolve,50));} };
       const initialRows=document.querySelectorAll('.file-row').length;
@@ -496,6 +498,7 @@ async function readDrives(){
     result.scrolling=await require('../scripts/scroll-smoke.cjs').run({window});
     result.mouseHistory=await require('../scripts/history-smoke.cjs').run({window,root:functionSmokeRoot});
     result.undo=await require('../scripts/undo-smoke.cjs').run({window,root:functionSmokeRoot});
+    result.searchSelection=await require('../scripts/search-selection-smoke.cjs').run({window,root:functionSmokeRoot});
     await window.webContents.executeJavaScript(`Promise.all(state.panes.map((_pane,index)=>navigate(index,${JSON.stringify(roots[0])})))`);
     await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;
     const smokeOutputRoot=path.resolve(app.getAppPath(),'output');
@@ -515,4 +518,4 @@ async function readDrives(){
 app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.show();window.focus();}});
 if(ownsInstance)app.whenReady().then(setup).catch(error => { console.error(error); app.exit(1); });
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', event => {if(operations?.active()){event.preventDefault();window?.show();return;}if(zoomSaveTimer){event.preventDefault();clearTimeout(zoomSaveTimer);zoomSaveTimer=null;writeSettings({}).then(()=>app.quit()).catch(error=>send('view:error',error.message));return;}updater?.stop();worker?.terminate();rootWatchers.forEach(watcher=>watcher.close());folderWatchers.forEach(watcher=>watcher.close());clearTimeout(indexTimer);clearTimeout(changedTimer);});
+app.on('before-quit', event => {if(operations?.active()){event.preventDefault();window?.show();return;}if(zoomSaveTimer){event.preventDefault();clearTimeout(zoomSaveTimer);zoomSaveTimer=null;writeSettings({}).then(()=>app.quit()).catch(error=>send('view:error',error.message));return;}updater?.stop();worker?.terminate();rootWatchers.close();folderWatchers.close();clearTimeout(recoveryTimer);clearTimeout(indexTimer);clearTimeout(changedTimer);});
