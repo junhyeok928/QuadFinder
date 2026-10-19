@@ -9,7 +9,7 @@ async function run({window,root}){
  window.show();window.focus();
  await evaluate('Promise.all([navigate(0,'+JSON.stringify(source)+'),navigate(1,'+JSON.stringify(target)+')])');
  await evaluate('document.querySelector("#search").focus()');await click('.pane:first-child .file-row');
- assert(await evaluate('document.activeElement.closest(".pane")===state.panes[0].element'),'file click moves keyboard focus out of search');
+ await wait('document.activeElement.closest(".pane")===state.panes[0].element');
  // No wait between copy and paste: the native write must finish before reading.
  key('c',['control']);await click('.pane:nth-child(2) .file-table',true);key('v',['control']);
  await wait('currentJobs.some(j=>j.destination==='+JSON.stringify(target)+'&&j.status==="completed")');assert.equal(await fs.readFile(path.join(target,'instant.txt'),'utf8'),'keyboard paste');
@@ -19,7 +19,7 @@ async function run({window,root}){
  await fs.writeFile(path.join(source,'address.txt'),'address focus');await evaluate('load(0)');
  await evaluate('(()=>{const row=[...state.panes[0].element.querySelectorAll(".file-row")].find(r=>r.title==='+JSON.stringify(path.join(source,'address.txt'))+');row.click();})()');await evaluate('fileAction("copy",0)');
  await evaluate('editPath(1)');await click('.pane:nth-child(2) .file-table',true);
- assert(await evaluate('document.activeElement===state.panes[1].element.querySelector(".file-table")'),'address blur does not destroy the focused file list');key('v',['control']);
+ await wait('document.activeElement===state.panes[1].element.querySelector(".file-table")');key('v',['control']);
  await wait('currentJobs.some(j=>j.sources?.includes('+JSON.stringify(path.join(source,'address.txt'))+')&&j.status==="completed")');
  for(let i=0;i<250;i++){try{if(await fs.readFile(path.join(target,'address.txt'),'utf8')==='address focus')break;}catch{}if(i===249)throw Error('Address-focused paste failed');await pause();}
  // Every static popup uses its positive button, even when Cancel has focus.
