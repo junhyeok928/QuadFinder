@@ -287,9 +287,9 @@ async function readDrives(){
     if(undo.busy&&!input?.verb&&!input?.probe)throw new Error('실행 취소 처리가 끝난 뒤 Windows 메뉴를 여세요.');
     if(!input||!Array.isArray(input.paths)||!input.paths.length||input.paths.length>1000)throw new Error('파일을 선택하세요.');
     const paths=input.paths.map(localPath);await Promise.all(paths.map(value=>fs.access(value)));
-    if(input.verb&&!['properties','openas'].includes(input.verb))throw new Error('허용되지 않은 Windows 명령입니다.');
+    if(input.verb&&!['properties','openas','windows.modernshare'].includes(input.verb))throw new Error('허용되지 않은 Windows 명령입니다.');
     const bounds=window.getContentBounds(),point=screen.dipToScreenPoint({x:Math.round(bounds.x+Math.max(0,Math.min(bounds.width,(Number(input.x)||0)*zoomPolicy.physical(zoomFactor)))),y:Math.round(bounds.y+Math.max(0,Math.min(bounds.height,(Number(input.y)||0)*zoomPolicy.physical(zoomFactor))))});
-    shellMenuOpen=true;try{const result=await windowsShell.request({mode:smoke&&input.probe?'probe':'menu',paths,background:input.background===true,extended:input.extended===true,canPaste:input.canPaste===true,viewOptions:normalizeView(input.viewOptions||{}),x:point.x,y:point.y,verb:input.verb});if(!result?.handledByApp&&result?.action==='delete')undo.clear();if(!result?.handledByApp&&result?.action&&!['copy','cut','properties','openas','rename'].includes(result.action))filesChanged(paths.concat(paths.map(value=>path.dirname(value))));return result;}finally{shellMenuOpen=false;if(window&&!window.isDestroyed()){window.focus();window.webContents.focus();}}
+    shellMenuOpen=true;try{const result=await windowsShell.request({mode:smoke&&input.probe?'probe':'menu',paths,background:input.background===true,extended:input.extended===true,canPaste:input.canPaste===true,viewOptions:normalizeView(input.viewOptions||{}),x:point.x,y:point.y,verb:input.verb});if(!result?.handledByApp&&result?.action==='delete')undo.clear();if(!result?.handledByApp&&result?.action&&!['copy','cut','properties','openas','rename','windows.modernshare'].includes(result.action))filesChanged(paths.concat(paths.map(value=>path.dirname(value))));return result;}finally{shellMenuOpen=false;if(window&&!window.isDestroyed()){window.focus();window.webContents.focus();}}
   });
   handle('files:thumbnail', async value => {
     const file=localPath(value);

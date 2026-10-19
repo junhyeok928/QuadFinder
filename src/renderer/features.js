@@ -70,7 +70,7 @@ function bindPaneFeatures(index){
   };
   updateSelection(index);
 }
-function showFileMenu(index,x,y,background=false,extended=false){setActive(index);if(api.shellMenu&&!(background&&tabOf(state.panes[index]).search)&&!state.boot?.preview)return nativeMenu(index,x,y,background,undefined,extended);modernFileMenu(index,x,y,background);}
+function showFileMenu(index,x,y,background=false,extended=false){setActive(index);if(extended&&api.shellMenu&&!(background&&tabOf(state.panes[index]).search)&&!state.boot?.preview)return nativeMenu(index,x,y,background,undefined,true);return modernFileMenu(index,x,y,background);}
 
 async function transfer(kind,sources,destination,options={}){
   try{if(!api.startOperation)throw new Error('예시 화면에서는 파일 작업을 실행할 수 없습니다.');const id=await call(api.startOperation({kind,sources,destination,drop:options.drop===true}));if(id){if($('#operations-panel').hidden)jobsManuallyOpened=false;$('#operations-panel').hidden=false;scheduleJobsHide();}return id;}
@@ -105,7 +105,7 @@ async function fileAction(action,index=state.active){
     if(action==='reveal'&&entries[0])await call(api.reveal(entries[0].path));
     if(action==='other'&&entries[0]){if(state.layout===1)applyLayout(2);const target=index===0?1:0;await navigate(target,entries[0].directory?entries[0].path:entries[0].parent);setActive(target);}
     if(action==='path'&&entries.length&&api.copyPaths){await clipboardTask(async()=>{await call(api.copyPaths(entries.map(entry=>entry.path)));fileClipboard=null;});state.panes.forEach((_,i)=>updateSelection(i));toast('경로를 복사했습니다.');}
-    if(['properties','openas'].includes(action)&&entries[0]&&api.shellMenu){const rect=pane.element.getBoundingClientRect();await nativeMenu(index,rect.x+40,rect.y+60,false,action==='openas'?'openas':'properties');return;}
+    if(['properties','openas','share'].includes(action)&&entries[0]&&api.shellMenu){const rect=pane.element.getBoundingClientRect();await nativeMenu(index,rect.x+40,rect.y+60,false,action==='share'?'windows.modernshare':action);return;}
     if(action==='properties'&&entries[0]){
       const entry=entries[0];$('#properties-content').innerHTML=`<dl><dt>이름</dt><dd>${escapeHTML(entry.name)}</dd><dt>위치</dt><dd>${escapeHTML(entry.path)}</dd><dt>유형</dt><dd>${escapeHTML(typeLabel(entry))}</dd><dt>크기</dt><dd>${entry.directory?'폴더':`${sizeLabel(entry)} (${entry.size.toLocaleString()} 바이트)`}</dd><dt>수정</dt><dd>${escapeHTML(dateLabel(entry.modified))}</dd></dl>`;$('#properties-dialog').showModal();
     }

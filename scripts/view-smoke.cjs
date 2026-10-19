@@ -27,7 +27,7 @@ async function run({window,root,appPath,saveComplete}){
   await evaluate(`setView(0,{inspector:'preview'});[...state.panes[0].element.querySelectorAll('.file-row')].find(r=>r.title===${JSON.stringify(pdf)}).click()`);await wait(`state.panes[0].element.querySelector('.inspector-content iframe')?.src.startsWith('quadfinder://preview/')`);
   await new Promise(resolve=>setTimeout(resolve,1200));await fs.writeFile(path.join(appPath,'output','preview-pdf.png'),(await window.webContents.capturePage()).toPNG());
   const native=await evaluate(`call(api.shellMenu({paths:[${JSON.stringify(text)}],probe:true}))`);assert(native.count>5);
-  await evaluate(`setView(0,{inspector:'off'});modernFileMenu(0,400,250)`);assert(await evaluate(`document.querySelectorAll('#context-menu .menu-command-bar button').length===4&&!!document.querySelector('[data-context="more"]')`));
+  await evaluate(`setView(0,{inspector:'off'});modernFileMenu(0,400,250)`);assert(await evaluate(`document.querySelectorAll('#context-menu .menu-command-bar button').length===6&&!!document.querySelector('[data-context="more"]')`));
   await fs.writeFile(path.join(appPath,'output','context-menu.png'),(await window.webContents.capturePage()).toPNG());await evaluate(`document.querySelector('#context-menu').hidden=true`);
   await evaluate(`navigate(0,${JSON.stringify(root)})`);await evaluate(`navigate(0,${JSON.stringify(folder)})`);assert(await evaluate(`viewOf(tabOf(state.panes[0])).checkboxes&&viewOf(tabOf(state.panes[0])).columns[1].id==='name'&&!viewOf(tabOf(state.panes[0])).showExtensions`));
   await saveComplete();await window.loadURL('quadfinder://app/index.html');await wait('window.__quadfinderReady===true');

@@ -37,7 +37,7 @@ async function run({window,root}){
   await evaluate(`load(2)`);
   await evaluate(`document.querySelector('.pane:nth-child(3) .file-row').click()`);
   const trashId=await evaluate(`fileAction('trash',2).then(()=>currentJobs[currentJobs.length-1]?.id)`);await waitJob(trashId);await assert.rejects(fs.stat(path.join(moved,'renamed.txt')),{code:'ENOENT'});
-  const menu=await evaluate(`(()=>{const table=document.querySelector('.pane:nth-child(2) .file-table'),saved=nativeMenu;let request;nativeMenu=(...args)=>{request=args;return Promise.resolve();};table.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:400,clientY:250}));nativeMenu=saved;return request?.[0]===1&&request[3]===true&&state.active===1;})()`);assert(menu);
+  const menu=await evaluate(`(()=>{const table=document.querySelector('.pane:nth-child(2) .file-table'),saved=nativeMenu;let request;nativeMenu=(...args)=>{request=args;return Promise.resolve();};table.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,shiftKey:true,clientX:400,clientY:250}));nativeMenu=saved;return request?.[0]===1&&request[3]===true&&state.active===1;})()`);assert(menu);
   await evaluate(`document.querySelector('#context-menu').hidden=true;document.querySelector('#operations-panel').hidden=true;`);
   await evaluate(`document.querySelector('#manage-roots').click();document.querySelector('#root-path').value=${JSON.stringify(root)};document.querySelector('#add-root-path').click();`);
   const rootsDeadline=Date.now()+10000;

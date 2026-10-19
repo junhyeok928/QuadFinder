@@ -32,15 +32,67 @@ function renderFileRows(index,entries){
     return header+(collapsed.has(group)?'':`<div class="file-row ${selection(tab).has(entry.path)?'selected':''} ${entry.hidden?'hidden-file':''}" role="option" aria-selected="${selection(tab).has(entry.path)}" tabindex="0" data-row="${i}" title="${escapeHTML(entry.path)}">${renderEntryCells(entry,tab)}</div>`);
   }).join('');
 }
-function positionMenu(menu,x,y){menu.hidden=false;menu.style.left=`${Math.max(4,Math.min(x,innerWidth-menu.offsetWidth-8))}px`;menu.style.top=`${Math.max(4,Math.min(y,innerHeight-menu.offsetHeight-8))}px`;}
-function menuIcon(name){const paths={cut:'M8 8l9 12M8 16L17 4M7 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',copy:'M8 8h12v13H8zM16 8V3H3v13h5',paste:'M8 5H4v16h16V5h-4M8 3h8v4H8z',rename:'M4 8v10h8M4 8h8M16 3v18m-3-18h6m-6 18h6',trash:'M3 6h18M8 6V3h8v3M6 6l1 15h10l1-15M10 10v7m4-7v7',properties:'M12 11v7m0-12v1M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20',open:'M3 5h7l2 3h9l-3 12H3z',reveal:'M3 5h7l2 3h9v12H3z',other:'M3 4h18v16H3zM12 4v16',more:'M4 5h16v14H4zM8 9h8m-8 4h5',view:'M3 3h7v7H3zm11 0h7v7h-7zM3 14h7v7H3zm11 0h7v7h-7z',sort:'M4 6h14M4 12h10M4 18h6m10-6v9m-3-3 3 3 3-3',refresh:'M20 8a8 8 0 1 0 0 8m0-14v6h-6',mkdir:'M3 6h7l2 3h9v12H3zM15 12v6m-3-3h6',path:'M9 15l6-6M8 17l-2 2a4 4 0 0 1-5-5l5-5m10-2 2-2a4 4 0 0 1 5 5l-5 5'};return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]||paths.more}"/></svg>`;}
+function positionMenu(menu,x,y){menu.onkeydown=null;menu.hidden=false;menu.style.left=`${Math.max(4,Math.min(x,innerWidth-menu.offsetWidth-8))}px`;menu.style.top=`${Math.max(4,Math.min(y,innerHeight-menu.offsetHeight-8))}px`;}
+function menuIcon(name){const paths={share:'M12 15V3m-4 4 4-4 4 4M7 10H4v11h16V10h-3',group:'M3 4h4v4H3zm0 12h4v4H3zM11 6h10M11 18h10',cut:'M8 8l9 12M8 16L17 4M7 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',copy:'M8 8h12v13H8zM16 8V3H3v13h5',paste:'M8 5H4v16h16V5h-4M8 3h8v4H8z',rename:'M4 8v10h8M4 8h8M16 3v18m-3-18h6m-6 18h6',trash:'M3 6h18M8 6V3h8v3M6 6l1 15h10l1-15M10 10v7m4-7v7',properties:'M12 11v7m0-12v1M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20',open:'M3 5h7l2 3h9l-3 12H3z',reveal:'M3 5h7l2 3h9v12H3z',other:'M3 4h18v16H3zM12 4v16',more:'M4 5h16v14H4zM8 9h8m-8 4h5',view:'M3 3h7v7H3zm11 0h7v7h-7zM3 14h7v7H3zm11 0h7v7h-7z',sort:'M4 6h14M4 12h10M4 18h6m10-6v9m-3-3 3 3 3-3',refresh:'M20 8a8 8 0 1 0 0 8m0-14v6h-6',mkdir:'M3 6h7l2 3h9v12H3zM15 12v6m-3-3h6',path:'M9 15l6-6M8 17l-2 2a4 4 0 0 1-5-5l5-5m10-2 2-2a4 4 0 0 1 5 5l-5 5'};return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]||paths.more}"/></svg>`;}
 function menuButton(action,label,key='',disabled=false){return `<button role="menuitem" data-context="${action}" ${disabled?'disabled':''}>${menuIcon(action)}<span>${label}</span><kbd>${key}</kbd></button>`;}
+function closeFileMenu(restore=false){
+  const menu=$('#context-menu');menu.hidden=true;
+  if(restore&&menu.returnFocus?.isConnected)menu.returnFocus.focus({preventScroll:true});
+}
 function modernFileMenu(index,x,y,background=false){
-  const menu=$('#context-menu'),entries=selectedEntries(index),tab=tabOf(state.panes[index]);menu.className='explorer-menu';
-  const buttons=background?[]:[['cut','잘라내기'],['copy','복사'],['rename','이름 변경'],['trash','삭제']];
-  menu.innerHTML=(buttons.length?`<div class="menu-command-bar">${buttons.map(([action,label])=>`<button role="menuitem" data-context="${action}" title="${label}" aria-label="${label}" ${action==='rename'&&entries.length!==1?'disabled':''}>${menuIcon(action)}</button>`).join('')}</div>`:'')+
-    (background?menuButton('view','보기','›')+menuButton('sort','정렬 기준','›')+menuButton('group','그룹화 기준','›')+menuButton('refresh','새로 고침','F5')+'<hr>'+menuButton('paste','붙여넣기','Ctrl+V',tab.search||(!api.readClipboard&&!fileClipboard))+menuButton('mkdir','새 폴더','Ctrl+Shift+N',tab.search):menuButton('open','열기','Enter')+menuButton('openas','연결 프로그램', '',entries.length!==1||entries[0]?.directory)+menuButton('path','경로로 복사','Ctrl+Shift+C')+menuButton('reveal','파일 위치 열기')+menuButton('other','다른 패널에서 열기')+'<hr>'+menuButton('properties','속성','Alt+Enter',!entries.length))+'<hr>'+menuButton('more','더 많은 옵션 표시','Shift+우클릭',!api.shellMenu||(background&&tab.search));
-  positionMenu(menu,x,y);menu.querySelectorAll('[data-context]').forEach(button=>button.onclick=()=>{menu.hidden=true;const action=button.dataset.context;if(['view','sort','group'].includes(action))showViewMenu(index,x,y,action==='view'?false:action);else if(action==='more')nativeMenu(index,x,y,background);else fileAction(action,index);});menu.querySelector('button:not(:disabled)')?.focus();
+  const menu=$('#context-menu'),entries=selectedEntries(index),tab=tabOf(state.panes[index]);
+  menu.className='explorer-menu windows11-menu';menu.returnFocus=document.activeElement;
+  menu.setAttribute('aria-label',background?'폴더 메뉴':'파일 메뉴');
+  const sameParent=entries.every(entry=>folderKey(entry.parent||'')===folderKey(entries[0]?.parent||''));
+  const canShare=!!api.shellMenu&&entries.length>0&&sameParent&&entries.every(entry=>!entry.directory);
+  const commands=[['cut','잘라내기','Ctrl+X',!entries.length],['copy','복사','Ctrl+C',!entries.length],['paste','붙여넣기','Ctrl+V',true],['rename','이름 바꾸기','F2',entries.length!==1],['share','공유','',!canShare],['trash','삭제','Delete',!entries.length]];
+  const commandBar=background?'':`<div class="menu-command-bar" role="group" aria-label="파일 작업">${commands.map(([action,label,key,disabled])=>`<button role="menuitem" data-context="${action}" title="${label}${key?' ('+key+')':''}" aria-label="${label}" ${disabled?'disabled':''}>${menuIcon(action)}</button>`).join('')}</div>`;
+  const submenu=(action,label)=>`<button role="menuitem" data-context="${action}" aria-haspopup="menu">${menuIcon(action)}<span>${label}</span><span class="menu-chevron" aria-hidden="true">›</span></button>`;
+  menu.innerHTML=commandBar+(background?
+    submenu('view','보기')+submenu('sort','정렬 기준')+submenu('group','분류 방법')+menuButton('refresh','새로 고침','F5')+'<hr>'+menuButton('paste','붙여넣기','Ctrl+V',true)+menuButton('mkdir','새 폴더','Ctrl+Shift+N',tab.search):
+    menuButton('open','열기','Enter',!entries.length)+(entries.length===1&&!entries[0].directory?menuButton('openas','연결 프로그램'):'' )+menuButton('path','경로로 복사','Ctrl+Shift+C',!entries.length)+menuButton('properties','속성','Alt+Enter',!entries.length))+
+    '<hr>'+menuButton('more','더 많은 옵션 표시','Shift+F10',!api.shellMenu||(background&&tab.search));
+  positionMenu(menu,x,y);
+  menu.querySelectorAll('[data-context]').forEach(button=>button.onclick=()=>{
+    closeFileMenu();const action=button.dataset.context;
+    if(['view','sort','group'].includes(action)){menu.hidden=false;showFileSubmenu(index,menu,button,action);}
+    else if(action==='more')nativeMenu(index,x,y,background,undefined,true);
+    else {if(menu.returnFocus?.isConnected)menu.returnFocus.focus({preventScroll:true});fileAction(action,index);}
+  });
+  menu.querySelectorAll('[aria-haspopup="menu"]').forEach(button=>button.onpointerenter=()=>showFileSubmenu(index,menu,button,button.dataset.context));
+  menu.querySelectorAll('[data-context]:not([aria-haspopup])').forEach(button=>button.onpointerenter=()=>menu.querySelector('.file-submenu')?.remove());
+  menu.onkeydown=event=>{
+    if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeFileMenu(true);return;}
+    if(event.target.closest('.file-submenu'))return;
+    if(event.key==='Enter'&&(event.repeat||event.isComposing||event.keyCode===229)){event.preventDefault();event.stopPropagation();return;}
+    if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
+    event.preventDefault();event.stopPropagation();
+    const buttons=[...menu.querySelectorAll('button:not(:disabled)')].filter(button=>!button.closest('.file-submenu')),current=document.activeElement,bar=menu.querySelector('.menu-command-bar'),inBar=bar?.contains(current),toolbar=bar?[...bar.querySelectorAll('button:not(:disabled)')]:[];
+    if(event.key==='ArrowRight'&&current.getAttribute('aria-haspopup')==='menu'){current.click();return;}
+    const items=inBar&&['ArrowLeft','ArrowRight'].includes(event.key)?toolbar:buttons;
+    const at=items.indexOf(current),step=['ArrowLeft','ArrowUp'].includes(event.key)?-1:1;
+    const target=event.key==='Home'?items[0]:event.key==='End'?items.at(-1):inBar&&event.key==='ArrowDown'?buttons.find(button=>!bar.contains(button)):items[(at+step+items.length)%items.length];target?.focus();
+  };
+  menu.querySelector(background?'button:not(:disabled)':'[data-context="open"]')?.focus({preventScroll:true});
+  const paste=menu.querySelector('[data-context="paste"]');
+  readFileClipboard().then(copied=>{if(!menu.hidden&&paste?.isConnected&&tabOf(state.panes[index])===tab)paste.disabled=tab.search||!copied?.paths.length;}).catch(()=>{});
+}
+function showFileSubmenu(index,menu,button,section){
+  menu.querySelector('.file-submenu')?.remove();const options=viewOf(tabOf(state.panes[index])),sub=document.createElement('div');
+  sub.className='explorer-menu windows11-menu file-submenu';sub.setAttribute('role','menu');sub.setAttribute('aria-label',button.textContent.trim());
+  const choices=section==='view'?Object.entries(viewModes).map(([value,label])=>['view',value,label,options.view===value]):section==='sort'?
+    ['name','modified','type','size'].map(value=>['sort',value,columnFields[value],options.sort===value]).concat([null,['desc',false,'오름차순',!options.desc],['desc',true,'내림차순',options.desc]]):
+    Object.entries({none:'없음',type:'유형',modified:'수정한 날짜',size:'크기'}).map(([value,label])=>['group',value,label,options.group===value]);
+  sub.innerHTML=choices.map((item,i)=>item?`<button role="menuitemradio" aria-checked="${item[3]}" data-choice="${i}"><span class="menu-check" aria-hidden="true">${item[3]?'✓':''}</span><span>${item[2]}</span></button>`:'<hr>').join('');
+  menu.append(sub);const rect=button.getBoundingClientRect();sub.style.left=`${rect.right+sub.offsetWidth+8>innerWidth?Math.max(4,rect.left-sub.offsetWidth-5):rect.right+5}px`;sub.style.top=`${Math.max(4,Math.min(rect.top,innerHeight-sub.offsetHeight-8))}px`;
+  sub.querySelectorAll('button').forEach(choice=>choice.onclick=()=>{const [key,value]=choices[Number(choice.dataset.choice)];closeFileMenu();setView(index,{[key]:value});state.panes[index].element.querySelector('.file-table')?.focus({preventScroll:true});});
+  sub.onkeydown=event=>{
+    if(event.key==='Escape'||event.key==='ArrowLeft'){event.preventDefault();event.stopPropagation();sub.remove();button.focus();return;}
+    if(event.key==='Enter'&&(event.repeat||event.isComposing||event.keyCode===229)){event.preventDefault();event.stopPropagation();return;}
+    if(!['ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
+    event.preventDefault();event.stopPropagation();const items=[...sub.querySelectorAll('button')],at=items.indexOf(document.activeElement);(event.key==='Home'?items[0]:event.key==='End'?items.at(-1):items[(at+(event.key==='ArrowUp'?-1:1)+items.length)%items.length])?.focus();
+  };
+  if(document.activeElement===button)sub.querySelector('button')?.focus({preventScroll:true});
 }
 async function nativeMenu(index,x,y,background=false,verb,extended=false){try{if(!api.shellMenu)return toast('Windows 시스템 메뉴는 데스크톱 앱에서 사용할 수 있습니다.');await clipboardQueue.catch(()=>{});const copied=background?await readFileClipboard():null;const tab=tabOf(state.panes[index]);const result=await call(api.shellMenu({paths:background?[tab.path]:selectedEntries(index).map(entry=>entry.path),background,x,y,verb,extended,canPaste:!!copied?.paths.length,viewOptions:viewOf(tab)}));const action=({rename:'rename',copy:'copy',cut:'cut',paste:'paste',delete:'trash',path:'path',refresh:'refresh',newfolder:'mkdir'})[result?.action];
  const [setting,value]=(result?.action||'').split(':');
@@ -49,7 +101,7 @@ async function nativeMenu(index,x,y,background=false,verb,extended=false){try{if
  else if(action)await fileAction(action,index);else if(!result?.cancelled)queueRefresh();
  if(!document.querySelector('dialog[open]')&&tabOf(state.panes[index])===tab)state.panes[index].element.querySelector('.file-table')?.focus({preventScroll:true});}catch(error){toast(error.message);}}
 function showViewMenu(index,x,y,panel=false){
-  const menu=$('#context-menu'),options=viewOf(tabOf(state.panes[index]));menu.className='explorer-menu view-menu';
+  const menu=$('#context-menu'),options=viewOf(tabOf(state.panes[index]));menu.className='explorer-menu view-menu';menu.onkeydown=null;
   const choice=(key,value,label,checked)=>`<button role="${['showHidden','showExtensions','checkboxes'].includes(key)?'menuitemcheckbox':'menuitemradio'}" aria-checked="${checked}" data-view-key="${key}" data-view-value="${value}"><span class="menu-check">${checked?'✓':''}</span><span>${label}</span></button>`;
   const link=(value,label)=>`<button role="menuitem" data-view-panel="${value}">${menuIcon(value==='sort'?'sort':'view')}<span>${label}</span><kbd>›</kbd></button>`;
   const back='<button role="menuitem" data-view-back>‹ 보기 옵션</button><hr>';
