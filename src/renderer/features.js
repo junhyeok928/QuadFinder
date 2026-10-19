@@ -1,5 +1,8 @@
 // File interactions share the existing explorer state; filesystem access stays in main.
 let fileClipboard=null,draggedPaths=null,renameSource=null,refreshTimer=null;
+let clipboardQueue=Promise.resolve();
+function clipboardTask(task){const next=clipboardQueue.catch(()=>{}).then(task);clipboardQueue=next;return next;}
+async function readFileClipboard(){return clipboardTask(async()=>{if(api.readClipboard){const data=await call(api.readClipboard());fileClipboard=data.paths.length?data:null;}return fileClipboard;});}
 let currentJobs=[];
 let refreshFocused=true,pendingRefreshAll=false,pendingSearch=false,refreshRunning=false;
 const pendingRefreshPaths=new Set();
@@ -33,7 +36,7 @@ function bindRows(index,rows,sorted){
       if(['ArrowDown','ArrowUp','ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();const columns=getComputedStyle(rows).gridTemplateColumns.split(' ').filter(v=>v&&v!=='none').length||1;const step=({ArrowDown:columns,ArrowUp:-columns,ArrowLeft:-1,ArrowRight:1})[event.key];const siblings=[...rows.querySelectorAll('[data-row]')],next=siblings[siblings.indexOf(row)+step];if(next){const item=sorted[Number(next.dataset.row)];if(!event.ctrlKey)chooseEntry(index,item,event,sorted);next.focus();}}
       if(event.key===' '){event.preventDefault();chooseEntry(index,entry,{ctrlKey:true},sorted);}
     };
-    row.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();if(!selection(tab).has(entry.path))chooseEntry(index,entry,{},sorted);event.shiftKey?nativeMenu(index,event.clientX,event.clientY):showFileMenu(index,event.clientX,event.clientY);};
+    row.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();setActive(index);if(!selection(tab).has(entry.path))chooseEntry(index,entry,{},sorted);showFileMenu(index,event.clientX,event.clientY,false,event.shiftKey);};
     row.ondragstart=event=>{if(!selection(tab).has(entry.path))chooseEntry(index,entry,{},sorted);draggedPaths=selectedEntries(index).map(item=>item.path);event.dataTransfer.setData('application/x-quadfinder',JSON.stringify(draggedPaths));event.dataTransfer.effectAllowed='copyMove';};
     row.ondragend=()=>{draggedPaths=null;document.querySelectorAll('.drop-target').forEach(item=>item.classList.remove('drop-target'));};
   });
@@ -41,10 +44,11 @@ function bindRows(index,rows,sorted){
 }
 function bindPaneFeatures(index){
   const pane=state.panes[index],element=pane.element,tab=tabOf(pane),table=element.querySelector('.file-table');
-  table.setAttribute('aria-multiselectable','true');
+  table.setAttribute('aria-multiselectable','true');table.tabIndex=0;
+  table.addEventListener('pointerdown',event=>{if(event.button>2||event.target.closest('input,button,select,.columns'))return;setActive(index);(event.target.closest('.file-row')||table).focus({preventScroll:true});});
   bindMarquee(index,table,tab);
   element.querySelectorAll('[data-file-action]').forEach(button=>button.onclick=()=>fileAction(button.dataset.fileAction,index));
-  table.oncontextmenu=event=>{event.preventDefault();setActive(index);event.shiftKey&&!tab.search?nativeMenu(index,event.clientX,event.clientY,true):showFileMenu(index,event.clientX,event.clientY,true);};
+  table.oncontextmenu=event=>{event.preventDefault();setActive(index);selection(tab).clear();tab.selected=null;updateSelection(index);showFileMenu(index,event.clientX,event.clientY,true,event.shiftKey);};
   table.onclick=event=>{if(!event.target.closest('.file-row,.columns,.load-more,.group-heading')){selection(tab).clear();tab.selected=null;updateSelection(index);}};
   table.ondragover=event=>{
     if(tab.search)return;event.preventDefault();event.dataTransfer.dropEffect=event.shiftKey?'move':'copy';
@@ -62,26 +66,26 @@ function bindPaneFeatures(index){
   };
   updateSelection(index);
 }
-function showFileMenu(index,x,y,background=false){modernFileMenu(index,x,y,background);}
+function showFileMenu(index,x,y,background=false,extended=false){setActive(index);if(api.shellMenu&&!(background&&tabOf(state.panes[index]).search)&&!state.boot?.preview)return nativeMenu(index,x,y,background,undefined,extended);modernFileMenu(index,x,y,background);}
 
 async function transfer(kind,sources,destination){
   try{if(!api.startOperation)throw new Error('예시 화면에서는 파일 작업을 실행할 수 없습니다.');const id=await call(api.startOperation({kind,sources,destination}));if(id)$('#operations-panel').hidden=false;return id;}
   catch(error){toast(error.message);return null;}
 }
 async function fileAction(action,index=state.active){
-  const pane=state.panes[index],tab=tabOf(pane),entries=selectedEntries(index);setActive(index);
+  const pane=state.panes[index],tab=tabOf(pane),entries=selectedEntries(index),destinationPath=tab.path;setActive(index);
   try{
     if(action==='menu'){const rect=pane.element.querySelector('[data-file-action="menu"]').getBoundingClientRect();showFileMenu(index,rect.left,rect.top,entries.length===0);}
     if(action==='copy'||action==='cut'){
       if(!entries.length)return toast('파일이나 폴더를 선택하세요.');
-      fileClipboard={kind:action==='cut'?'move':'copy',paths:entries.map(entry=>entry.path)};
-      if(api.writeClipboard)await call(api.writeClipboard(fileClipboard));
+      const copied={kind:action==='cut'?'move':'copy',paths:entries.map(entry=>entry.path)};
+      await clipboardTask(async()=>{if(api.writeClipboard)await call(api.writeClipboard(copied));fileClipboard=copied;});
       state.panes.forEach((_pane,i)=>updateSelection(i));toast(`${entries.length}개 항목 ${action==='cut'?'잘라내기':'복사'} · 대상 폴더에서 Ctrl+V`);
     }
     if(action==='paste'){
-      if(api.readClipboard){const data=await call(api.readClipboard());fileClipboard=data.paths.length?data:null;}
-      if(!fileClipboard)return toast('먼저 복사하거나 잘라내세요.');if(tab.search)return toast('대상 폴더 패널을 선택하세요.');
-      const id=await transfer(fileClipboard.kind,fileClipboard.paths,tab.path);if(id&&fileClipboard.kind==='move')fileClipboard=null;
+      const copied=await readFileClipboard();
+      if(!copied)return toast('먼저 복사하거나 잘라내세요.');if(tab.search)return toast('대상 폴더 패널을 선택하세요.');
+      const id=await transfer(copied.kind,copied.paths,destinationPath);if(id&&copied.kind==='move'&&fileClipboard===copied)fileClipboard=null;
       state.panes.forEach((_pane,i)=>updateSelection(i));
     }
     if(action==='copy-to'||action==='move-to'){
@@ -168,7 +172,7 @@ function initFeatures(boot){
   $('#clear-jobs').onclick=()=>api.clearOperations?call(api.clearOperations()).catch(error=>toast(error.message)):renderJobs([]);
   setRefreshFocus(boot.smoke||document.hasFocus());
   window.addEventListener('blur',()=>setRefreshFocus(false));
-  window.addEventListener('focus',()=>{setRefreshFocus(true);queueRefresh(state.panes.slice(0,state.layout).map(pane=>tabOf(pane).path));if(api.readClipboard)call(api.readClipboard()).then(data=>{fileClipboard=data.paths.length?data:null;state.panes.forEach((_,i)=>updateSelection(i));}).catch(()=>{});});
+  window.addEventListener('focus',()=>{setRefreshFocus(true);queueRefresh(state.panes.slice(0,state.layout).map(pane=>tabOf(pane).path));if(api.readClipboard)readFileClipboard().then(()=>{state.panes.forEach((_,i)=>updateSelection(i));}).catch(()=>{});});
   api.onOperations?.(renderJobs);api.onFilesChanged?.(queueRefresh);api.onRoots?.(renderRoots);renderJobs(boot.jobs||[]);renderRoots(boot.roots);
   document.addEventListener('pointerdown',event=>{if(!event.target.closest('#context-menu'))$('#context-menu').hidden=true;});
   document.addEventListener('keydown',event=>{
@@ -176,8 +180,8 @@ function initFeatures(boot){
     if(event.key==='Escape'){$('#context-menu').hidden=true;return;}
     if(event.ctrlKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();$('#context-menu').hidden=true;if(undoState?.busy)toast('내용을 검증하고 있습니다. 중단하려면 상단의 처리 중단을 누르세요.');else if(!$('#undo-operation').disabled)$('#undo-operation').click();else toast('실행 취소할 수 있는 완료 작업이 없습니다.');return;}
     const menu=$('#context-menu');if(!menu.hidden&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();const buttons=[...menu.querySelectorAll('button:not(:disabled)')],index=buttons.indexOf(document.activeElement);buttons[(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus();return;}
-    if(event.target instanceof Element&&event.target.closest('#sidebar'))return;
-    if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){event.preventDefault();const row=document.activeElement.closest?.('.file-row'),rect=(row||state.panes[state.active].element.querySelector('.file-table')).getBoundingClientRect();showFileMenu(state.active,rect.x+20,rect.y+20,!selectedEntries().length);return;}
+    if(event.target instanceof Element&&event.target.closest('#sidebar')&&!(event.ctrlKey&&event.key.toLowerCase()==='v'))return;
+    if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){event.preventDefault();const row=document.activeElement.closest?.('.file-row'),rect=(row||state.panes[state.active].element.querySelector('.file-table')).getBoundingClientRect();showFileMenu(state.active,rect.x+20,rect.y+20,!selectedEntries().length,event.shiftKey);return;}
     const key=event.key.toLowerCase();let action;
     if(event.ctrlKey&&event.shiftKey&&key==='c')action='path';
     if(event.altKey&&key==='p'){event.preventDefault();setView(state.active,{inspector:viewOf(tabOf(state.panes[state.active])).inspector==='preview'?'off':'preview'});return;}

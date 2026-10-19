@@ -6,6 +6,14 @@
   const close=document.createElement('button');close.type='button';close.className='popup-close';close.setAttribute('aria-label','닫기');close.textContent='×';close.onclick=()=>surface.close('cancel');bar.append(close);
   if(!heading.id)heading.id=surface.id+'-title';surface.setAttribute('aria-labelledby',heading.id);
   surface.querySelectorAll('button[value="cancel"]').forEach(button=>button.formNoValidate=true);
+  surface.addEventListener('cancel',event=>{event.preventDefault();surface.close('cancel');});
+  surface.addEventListener('keydown',event=>{
+   if(event.key!=='Enter'||event.isComposing||event.keyCode===229)return;
+   event.preventDefault();event.stopImmediatePropagation();if(event.repeat)return;
+   const target=event.target.closest('[data-enter-action]');
+   const confirm=target?surface.querySelector('#'+target.dataset.enterAction):surface.querySelector('.primary');
+   if(confirm&&!confirm.disabled)confirm.click();
+  },true);
  }
  const api=window.quadfind;if(!api?.onDialog)return;
  const queue=[];let current=null,previousFocus;
@@ -30,14 +38,15 @@
   const cancel=document.createElement('button');cancel.type='button';cancel.dataset.dialogAction='cancel';cancel.textContent=current.cancelLabel||'취소';cancel.addEventListener('click',()=>respond('cancel'));if(!conflict)get('.action-footer').prepend(cancel);
   dialog.showModal();
   const confirm=current.choices.length===1?get('.action-footer button:not([data-dialog-action="cancel"]):not(:disabled)'):null;
-  if(conflict)get('.action-close').focus();else (confirm||cancel).focus();
+  if(conflict)get('.action-footer button:not(:disabled)')?.focus();else (confirm||cancel).focus();
  }
  dialog.addEventListener('keydown',event=>{
-  if(event.key!=='Enter'||event.isComposing)return;
+  if(event.key!=='Enter'||event.isComposing||event.keyCode===229)return;
   if(event.repeat){event.preventDefault();return;}
-  const button=event.target.closest('button');
-  if(button){event.preventDefault();if(!button.disabled)button.click();return;}
-  if(current?.choices.length===1&&!current.choices[0].disabled){event.preventDefault();respond(current.choices[0].action);}
+  event.preventDefault();event.stopImmediatePropagation();
+  const focused=event.target.closest('.action-footer button:not([data-dialog-action="cancel"]):not(:disabled)');
+  const confirm=focused||get('.action-footer button:not([data-dialog-action="cancel"]):not(:disabled)');
+  if(confirm)confirm.click();else respond('cancel');
  });
  dialog.addEventListener('cancel',event=>{event.preventDefault();respond('cancel');});get('.action-close').onclick=()=>respond('cancel');
  api.onDialog(request=>{queue.push(request);showNext();});api.onDialogCancel(id=>{const index=queue.findIndex(request=>request.id===id);if(index>=0)queue.splice(index,1);if(current?.id===id){current=null;dialog.close();previousFocus?.isConnected&&previousFocus.focus();showNext();}});

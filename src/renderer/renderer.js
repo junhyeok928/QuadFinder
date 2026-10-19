@@ -151,7 +151,7 @@ function renderPane(index) {
   element.querySelector('.view-mode').onchange=event=>{setView(index,{view:event.target.value});};
   element.querySelector('.new-tab').onclick = () => newTab(index);
   element.querySelector('.path-input').onkeydown = event => { if (event.key === 'Enter') navigate(index, event.target.value); if(event.key==='Escape')renderPane(index); };
-  element.querySelector('.path-input').onblur = () => { if(tabOf(pane)===tab && !tab.loading)renderPane(index); };
+  element.querySelector('.path-input').onblur = () => { if(tabOf(pane)===tab && !tab.loading){element.querySelector('.path-input').hidden=true;element.querySelector('.breadcrumbs').hidden=false;} };
   element.querySelector('.address').ondblclick = () => editPath(index);
   element.querySelectorAll('[data-breadcrumb]').forEach(button=>button.onclick=()=>navigate(index,button.dataset.breadcrumb));
   element.querySelectorAll('[data-action]').forEach(button => button.onclick = () => {
@@ -316,6 +316,7 @@ async function init() {
   $('#folder-dialog').addEventListener('close',async()=>{if($('#folder-dialog').returnValue!=='create')return;try{await call(api.mkdir($('#folder-parent').textContent,$('#folder-name').value));await load(state.active);toast('새 폴더를 만들었습니다.');}catch(error){toast(error.message);}});
   $('#folder-dialog button[value="cancel"]').formNoValidate=true;
   document.addEventListener('keydown',event=>{
+    if(document.querySelector('dialog[open]'))return;
     if(event.ctrlKey&&['k','f'].includes(event.key.toLowerCase())){event.preventDefault();$('#search').focus();$('#search').select();}
     if(event.ctrlKey&&event.key.toLowerCase()==='t'){event.preventDefault();newTab(state.active);}
     if(event.ctrlKey&&event.key.toLowerCase()==='l'){event.preventDefault();editPath(state.active);}

@@ -11,6 +11,7 @@ using System.Windows.Forms;
 // Runs shell extensions out of Electron's process. All input is JSON over stdin.
 class ShellBridge : Form {
   static JavaScriptSerializer json=new JavaScriptSerializer(){MaxJsonLength=16000000};
+  readonly Dictionary<uint,string> hostCommands=new Dictionary<uint,string>();
   IContextMenu menu; IContextMenu2 menu2; IContextMenu3 menu3;
   [DllImport("kernel32.dll",CharSet=CharSet.Unicode)] static extern uint GetDriveType(string root);
   [STAThread] static int Main(){
@@ -19,30 +20,32 @@ class ShellBridge : Form {
       string mode=(string)input["mode"];
       if(mode=="network-drives"||mode=="local-drives"){result=Enumerable.Range(65,26).Select(i=>((char)i)+":\\").Where(p=>mode=="network-drives"?GetDriveType(p)==4:(GetDriveType(p)==3||GetDriveType(p)==2)).ToArray();Console.WriteLine(json.Serialize(new {ok=true,value=result}));return 0;}
       if(mode=="attributes")result=Paths(input).Select(p=>{try{var a=File.GetAttributes(p);return new {path=p,known=true,hidden=(a&FileAttributes.Hidden)!=0,system=(a&FileAttributes.System)!=0,readOnly=(a&FileAttributes.ReadOnly)!=0};}catch{return new {path=p,known=false,hidden=false,system=false,readOnly=false};}}).ToArray();
-      else if(mode=="clipboard-write") {var data=new DataObject();var paths=new StringCollection();paths.AddRange(Paths(input));data.SetFileDropList(paths);data.SetData("Preferred DropEffect",new MemoryStream(BitConverter.GetBytes((string)input["kind"]=="move"?2:5)));Clipboard.SetDataObject(data,true);result=true;}
-      else if(mode=="clipboard-read") {var data=Clipboard.GetDataObject();var files=Clipboard.ContainsFileDropList()?Clipboard.GetFileDropList().Cast<string>().ToArray():new string[0];var effect=data==null?null:data.GetData("Preferred DropEffect") as MemoryStream;result=new {paths=files,kind=effect!=null&&effect.Length>=4&&(BitConverter.ToInt32(effect.ToArray(),0)&2)!=0?"move":"copy"};}
+      else if(mode=="clipboard-write") {var data=new DataObject();var paths=new StringCollection();paths.AddRange(Paths(input));data.SetFileDropList(paths);data.SetData("Preferred DropEffect",new MemoryStream(BitConverter.GetBytes((string)input["kind"]=="move"?2:5)));Clipboard.SetDataObject(data,true,10,50);result=true;}
+      else if(mode=="clipboard-read") {var data=ReadClipboard();var files=data!=null&&data.GetDataPresent(DataFormats.FileDrop)?(data.GetData(DataFormats.FileDrop) as string[]??new string[0]):new string[0];var effect=data==null?null:data.GetData("Preferred DropEffect") as MemoryStream;result=new {paths=files,kind=effect!=null&&effect.Length>=4&&(BitConverter.ToInt32(effect.ToArray(),0)&2)!=0?"move":"copy"};}
       else using(var form=new ShellBridge()){result=form.Run(input);}
       Console.WriteLine(json.Serialize(new {ok=true,value=result}));return 0;
     }catch(Exception error){Console.WriteLine(json.Serialize(new {ok=false,error=error.Message}));return 1;}
   }
+  static IDataObject ReadClipboard(){for(int attempt=0;;attempt++){try{return Clipboard.GetDataObject();}catch(ExternalException){if(attempt>=9)throw;System.Threading.Thread.Sleep(50);}}}
   static string[] Paths(Dictionary<string,object> input){return ((System.Collections.IEnumerable)input["paths"]).Cast<string>().ToArray();}
   object Run(Dictionary<string,object> input){
     var paths=Paths(input);if(paths.Length<1)throw new Exception("파일을 선택하세요.");
     bool background=input.ContainsKey("background")&&(bool)input["background"];
+    bool mixed=!background&&paths.Select(p=>Path.GetDirectoryName(p)??Path.GetPathRoot(p)).Distinct(StringComparer.OrdinalIgnoreCase).Count()>1;
     var pidls=new List<IntPtr>();object shell=null;IntPtr popup=IntPtr.Zero;
     try{
       Guid iid=new Guid("000214E4-0000-0000-C000-000000000046");
       if(background){IShellItem item;Guid itemId=typeof(IShellItem).GUID;Marshal.ThrowExceptionForHR(SHCreateItemFromParsingName(paths[0],IntPtr.Zero,ref itemId,out item));
         try{Guid folderHandler=new Guid("3981E224-F559-11D3-8E3A-00C04F6837D5"),folderId=typeof(IShellFolder).GUID;object obj;item.BindToHandler(IntPtr.Zero,ref folderHandler,ref folderId,out obj);shell=obj;var folder=(IShellFolder)obj;folder.CreateViewObject(Handle,ref iid,out obj);menu=(IContextMenu)obj;}finally{Marshal.ReleaseComObject(item);}
-      }else{
-        if(paths.Select(p=>Path.GetDirectoryName(p).ToLowerInvariant()).Distinct().Count()>1)throw new Exception("시스템 확장 메뉴는 같은 폴더의 항목을 선택해 사용하세요.");
+      }else if(!mixed){
         foreach(var path in paths){IntPtr pidl;uint attrs;Marshal.ThrowExceptionForHR(SHParseDisplayName(path,IntPtr.Zero,out pidl,0,out attrs));pidls.Add(pidl);}
         IShellItemArray array;Marshal.ThrowExceptionForHR(SHCreateShellItemArrayFromIDLists((uint)pidls.Count,pidls.ToArray(),out array));shell=array;
         Guid handler=new Guid("3981E225-F559-11D3-8E3A-00C04F6837D5");object obj;array.BindToHandler(IntPtr.Zero,ref handler,ref iid,out obj);menu=(IContextMenu)obj;
       }
       menu2=menu as IContextMenu2;menu3=menu as IContextMenu3;
-      popup=CreatePopupMenu();Marshal.ThrowExceptionForHR(menu.QueryContextMenu(popup,0,1,0x6fff,0x4|0x10|0x100));
-      if((string)input["mode"]=="probe")return new {count=GetMenuItemCount(popup),labels=Labels(popup),verbs=Verbs(popup)};
+      popup=CreatePopupMenu();if(background)BuildHostMenu(popup,input);if(mixed){AddHost(popup,"잘라내기(&T)","cut");AddHost(popup,"복사(&C)","copy");AddHost(popup,"삭제(&D)","delete");AddHost(popup,"경로로 복사(&A)","path");}else Marshal.ThrowExceptionForHR(menu.QueryContextMenu(popup,(uint)GetMenuItemCount(popup),1,0x6fff,0x4|0x10|(input.ContainsKey("extended")&&(bool)input["extended"]?0x100u:0u)));
+      if(background)for(int i=GetMenuItemCount(popup)-1;i>=0;i--){uint id=GetMenuItemID(popup,i);if(id<1||id>0x6fff)continue;var folderLabel=new StringBuilder(512);GetMenuString(popup,(uint)i,folderLabel,512,0x400);var label=folderLabel.ToString();if(label.StartsWith("새 폴더(")||label.StartsWith("New folder",StringComparison.OrdinalIgnoreCase))DeleteMenu(popup,(uint)i,0x400);}
+      if((string)input["mode"]=="probe")return new {count=GetMenuItemCount(popup),labels=Labels(popup),verbs=Verbs(popup).Concat(hostCommands.Values).ToArray(),hostActions=hostCommands.Values.ToArray()};
       string verb=input.ContainsKey("verb")?(string)input["verb"]:null;uint command=0;
       if(verb==null){
         ShowInTaskbar=false;FormBorderStyle=FormBorderStyle.None;Opacity=0;Width=1;Height=1;StartPosition=FormStartPosition.Manual;
@@ -51,10 +54,12 @@ class ShellBridge : Form {
         command=TrackPopupMenuEx(popup,0x100|0x2,Left,Top,Handle,IntPtr.Zero);
         if(dismiss!=null)dismiss.Dispose();
         if(command==0)return new {cancelled=true};
+        if(hostCommands.ContainsKey(command))return new {action=hostCommands[command],handledByApp=true};
         var buffer=new StringBuilder(256);menu.GetCommandString(new UIntPtr(command-1),0,IntPtr.Zero,buffer,256);verb=buffer.ToString();
         // Shell rename expects IShellView callbacks; QuadFinder supplies its own editor.
-        if(verb=="rename")return new {action="rename"};
+        if(new[]{"rename","copy","cut","paste","delete","refresh","newfolder"}.Contains(verb.ToLowerInvariant()))return new {action=verb.ToLowerInvariant(),handledByApp=true};
       }
+      if(menu==null)throw new Exception("다른 폴더의 항목은 복사·잘라내기·삭제·경로 복사를 지원합니다. 속성은 같은 폴더의 항목을 선택해 주세요.");
       bool dialogShown=false;System.Windows.Forms.Timer closeDialog=null;
       if((string)input["mode"]=="properties-test"){closeDialog=new System.Windows.Forms.Timer();closeDialog.Interval=500;closeDialog.Tick+=delegate{uint current=(uint)System.Diagnostics.Process.GetCurrentProcess().Id;EnumWindows(delegate(IntPtr h,IntPtr p){uint owner;GetWindowThreadProcessId(h,out owner);if(owner==current&&h!=Handle&&IsWindowVisible(h)){dialogShown=true;PostMessage(h,0x10,IntPtr.Zero,IntPtr.Zero);}return true;},IntPtr.Zero);};closeDialog.Start();}
       IntPtr text=IntPtr.Zero,wide=IntPtr.Zero;
@@ -68,6 +73,16 @@ class ShellBridge : Form {
         return new {action=verb,dialogShown=dialogShown};
       }finally{if(closeDialog!=null)closeDialog.Dispose();if(text!=IntPtr.Zero)Marshal.FreeCoTaskMem(text);if(wide!=IntPtr.Zero)Marshal.FreeCoTaskMem(wide);}
     }finally{if(popup!=IntPtr.Zero)DestroyMenu(popup);if(menu!=null)Marshal.ReleaseComObject(menu);if(shell!=null)Marshal.ReleaseComObject(shell);foreach(var pidl in pidls)Marshal.FreeCoTaskMem(pidl);}
+  }
+  void AddHost(IntPtr target,string label,string action,bool enabled=true,bool selected=false){uint id=0x7000u+(uint)hostCommands.Count;hostCommands[id]=action;AppendMenu(target,(enabled?0u:1u)|(selected?8u:0u),new UIntPtr(id),label);}
+  void BuildHostMenu(IntPtr target,Dictionary<string,object> input){
+    var options=input.ContainsKey("viewOptions")?input["viewOptions"] as Dictionary<string,object>:null;
+    Func<string,string,string> setting=(key,fallback)=>options!=null&&options.ContainsKey(key)?Convert.ToString(options[key]):fallback;
+    IntPtr views=CreatePopupMenu();var modes=new[]{"extra","tiles","medium","icons","list","details","tile","content"};var names=new[]{"아주 큰 아이콘","큰 아이콘","보통 아이콘","작은 아이콘","목록","자세히","타일","콘텐츠"};
+    for(int i=0;i<modes.Length;i++)AddHost(views,names[i],"view:"+modes[i],true,setting("view","details")==modes[i]);AppendMenu(target,0x10,new UIntPtr(unchecked((ulong)views.ToInt64())),"보기(&V)");
+    IntPtr sorts=CreatePopupMenu();var fields=new[]{"name","modified","type","size"};var labels=new[]{"이름","수정한 날짜","유형","크기"};for(int i=0;i<fields.Length;i++)AddHost(sorts,labels[i],"sort:"+fields[i],true,setting("sort","name")==fields[i]);AppendMenu(sorts,0x800,UIntPtr.Zero,null);AddHost(sorts,"오름차순","order:asc",true,setting("desc","False")=="False");AddHost(sorts,"내림차순","order:desc",true,setting("desc","False")=="True");AppendMenu(target,0x10,new UIntPtr(unchecked((ulong)sorts.ToInt64())),"정렬 기준(&O)");
+    IntPtr groups=CreatePopupMenu();AddHost(groups,"없음","group:none",true,setting("group","none")=="none");AddHost(groups,"유형","group:type",true,setting("group","none")=="type");AddHost(groups,"수정한 날짜","group:modified",true,setting("group","none")=="modified");AddHost(groups,"크기","group:size",true,setting("group","none")=="size");AppendMenu(target,0x10,new UIntPtr(unchecked((ulong)groups.ToInt64())),"분류 방법(&P)");
+    AddHost(target,"새로 고침(&E)","refresh");AppendMenu(target,0x800,UIntPtr.Zero,null);AddHost(target,"붙여넣기(&P)","paste",input.ContainsKey("canPaste")&&(bool)input["canPaste"]);AddHost(target,"새 폴더(&N)","newfolder");AppendMenu(target,0x800,UIntPtr.Zero,null);
   }
   bool HasVisibleOwnedWindow(){bool found=false;uint current=(uint)System.Diagnostics.Process.GetCurrentProcess().Id;EnumWindows(delegate(IntPtr h,IntPtr p){uint owner;GetWindowThreadProcessId(h,out owner);if(owner==current&&h!=Handle&&IsWindowVisible(h))found=true;return true;},IntPtr.Zero);return found;}
   static string[] Labels(IntPtr popup){var labels=new List<string>();for(int i=0;i<GetMenuItemCount(popup);i++){var text=new StringBuilder(512);GetMenuString(popup,(uint)i,text,512,0x400);if(text.Length>0)labels.Add(text.ToString());}return labels.ToArray();}
@@ -101,6 +116,8 @@ class ShellBridge : Form {
   [DllImport("shell32.dll",CharSet=CharSet.Unicode)]static extern int SHCreateItemFromParsingName(string n,IntPtr b,ref Guid iid,out IShellItem item);
   [DllImport("user32.dll")]static extern bool SetProcessDPIAware();[DllImport("user32.dll")]static extern bool EndMenu();
   [DllImport("user32.dll")]static extern IntPtr CreatePopupMenu();[DllImport("user32.dll")]static extern bool DestroyMenu(IntPtr menu);
+  [DllImport("user32.dll")]static extern bool DeleteMenu(IntPtr menu,uint item,uint flags);
+  [DllImport("user32.dll",CharSet=CharSet.Unicode)]static extern bool AppendMenu(IntPtr menu,uint flags,UIntPtr id,string label);
   [DllImport("user32.dll")]static extern uint TrackPopupMenuEx(IntPtr menu,uint flags,int x,int y,IntPtr owner,IntPtr param);
   [DllImport("user32.dll")]static extern bool SetForegroundWindow(IntPtr window);[DllImport("user32.dll")]static extern int GetMenuItemCount(IntPtr menu);
   [DllImport("user32.dll")]static extern uint GetMenuItemID(IntPtr menu,int position);

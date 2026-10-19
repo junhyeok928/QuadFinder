@@ -282,7 +282,7 @@ async function readDrives(){
     const paths=input.paths.map(localPath);await Promise.all(paths.map(value=>fs.access(value)));
     if(input.verb&&!['properties','openas'].includes(input.verb))throw new Error('허용되지 않은 Windows 명령입니다.');
     const bounds=window.getContentBounds(),point=screen.dipToScreenPoint({x:Math.round(bounds.x+Math.max(0,Math.min(bounds.width,(Number(input.x)||0)*zoomPolicy.physical(zoomFactor)))),y:Math.round(bounds.y+Math.max(0,Math.min(bounds.height,(Number(input.y)||0)*zoomPolicy.physical(zoomFactor))))});
-    shellMenuOpen=true;try{const result=await windowsShell.request({mode:smoke&&input.probe?'probe':'menu',paths,background:input.background===true,x:point.x,y:point.y,verb:input.verb});if(result?.action==='delete')undo.clear();if(result?.action&&!['copy','cut','properties','openas','rename'].includes(result.action))filesChanged(paths.concat(paths.map(value=>path.dirname(value))));return result;}finally{shellMenuOpen=false;}
+    shellMenuOpen=true;try{const result=await windowsShell.request({mode:smoke&&input.probe?'probe':'menu',paths,background:input.background===true,extended:input.extended===true,canPaste:input.canPaste===true,viewOptions:normalizeView(input.viewOptions||{}),x:point.x,y:point.y,verb:input.verb});if(!result?.handledByApp&&result?.action==='delete')undo.clear();if(!result?.handledByApp&&result?.action&&!['copy','cut','properties','openas','rename'].includes(result.action))filesChanged(paths.concat(paths.map(value=>path.dirname(value))));return result;}finally{shellMenuOpen=false;if(window&&!window.isDestroyed()){window.focus();window.webContents.focus();}}
   });
   handle('files:thumbnail', async value => {
     const file=localPath(value);
@@ -470,6 +470,7 @@ async function readDrives(){
     result.fileOperations=await require('../scripts/functional-smoke.cjs').run({window,root:functionSmokeRoot});
     interactiveDialogSmoke=true;
     try{result.dialogs=await require('../scripts/dialog-smoke.cjs').run({window,root:functionSmokeRoot,output:path.join(app.getAppPath(),'output')});}finally{interactiveDialogSmoke=false;}
+    result.interactions=await require('../scripts/interaction-smoke.cjs').run({window,root:functionSmokeRoot});
     result.refresh=await require('../scripts/refresh-smoke.cjs').run({window,root:functionSmokeRoot,notify:paths=>send('files:changed',paths),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},networkRoot:process.env.QUADFINDER_TEST_NETWORK_ROOT,stateFile:stateFile(),rootsFile:rootsFile()});
     result.sidebar=await require('../scripts/sidebar-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile(),appPath:app.getAppPath()});
     result.recent=await require('../scripts/recent-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile()});
