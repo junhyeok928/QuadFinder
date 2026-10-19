@@ -37,7 +37,9 @@ function bindRows(index,rows,sorted){
       if(event.key===' '){event.preventDefault();chooseEntry(index,entry,{ctrlKey:true},sorted);}
     };
     row.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();setActive(index);if(!selection(tab).has(entry.path))chooseEntry(index,entry,{},sorted);showFileMenu(index,event.clientX,event.clientY,false,event.shiftKey);};
-    row.ondragstart=event=>{if(!selection(tab).has(entry.path))chooseEntry(index,entry,{},sorted);draggedPaths=selectedEntries(index).map(item=>item.path);event.dataTransfer.setData('application/x-quadfinder',JSON.stringify(draggedPaths));event.dataTransfer.effectAllowed='copyMove';};
+    row.ondragstart=event=>{if(!selection(tab).has(entry.path))chooseEntry(index,entry,{},sorted);const paths=selectedEntries(index).map(item=>item.path);
+      if(event.isTrusted&&api.startFileDrag){event.preventDefault();draggedPaths=null;api.startFileDrag(paths);return;}
+      draggedPaths=paths;event.dataTransfer.setData('application/x-quadfinder',JSON.stringify(paths));event.dataTransfer.effectAllowed='copyMove';};
     row.ondragend=()=>{draggedPaths=null;document.querySelectorAll('.drop-target').forEach(item=>item.classList.remove('drop-target'));};
   });
   updateSelection(index);

@@ -25,6 +25,8 @@ async function run({window,root}){
  await evaluate('fileAction("mkdir",1);document.querySelector("#folder-name").value=""');key('Enter');await pause();assert(await evaluate('document.querySelector("#folder-dialog").open'),'required name prevents empty submission');await evaluate('document.querySelector("#folder-name").value="Enter folder"');key('Enter');
  for(let i=0;i<250;i++){try{if((await fs.stat(path.join(target,'Enter folder'))).isDirectory())break;}catch{}if(i===249)throw Error('Enter did not create folder');await pause();}
  const menu=await evaluate('(()=>{const saved=nativeMenu;let args;nativeMenu=(...values)=>{args=values;return Promise.resolve();};setActive(1);const row=state.panes[0].element.querySelector(".file-row");row.dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,clientX:400,clientY:250}));nativeMenu=saved;return {panel:state.active,request:args};})()');assert.equal(menu.panel,0);assert.equal(menu.request[0],0);assert.equal(menu.request[3],false);
- return {passed:true,firstClickPaste:true,immediateCopyPaste:true,addressFocusPaste:true,allPopupsEnter:ids.length,requiredName:true,newFolderEnter:true,nativeRightClick:true};
+ const savedDrag=window.webContents.startDrag;let nativeItem=null;window.webContents.startDrag=item=>{nativeItem=item;};
+ try{await evaluate('api.startFileDrag('+JSON.stringify([path.join(source,'instant.txt'),path.join(source,'address.txt')])+')');for(let i=0;i<100&&!nativeItem;i++)await pause();assert(nativeItem,'preload IPC reaches native drag API');assert.deepEqual(nativeItem.files,[path.join(source,'instant.txt'),path.join(source,'address.txt')]);assert(!nativeItem.icon.isEmpty());}finally{window.webContents.startDrag=savedDrag;}
+ return {passed:true,nativeDragIPC:true,firstClickPaste:true,immediateCopyPaste:true,addressFocusPaste:true,allPopupsEnter:ids.length,requiredName:true,newFolderEnter:true,nativeRightClick:true};
 }
 module.exports={run};

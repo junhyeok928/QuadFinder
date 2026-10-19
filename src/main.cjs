@@ -272,6 +272,11 @@ async function readDrives(){
   handle('files:folders',async value=>{const folder=localPath(value),items=await fs.readdir(folder,{withFileTypes:true});const entries=items.filter(item=>item.isDirectory()&&!item.isSymbolicLink()&&!item.name.startsWith('.quadfinder-')).map(item=>({name:item.name,path:path.join(folder,item.name),directory:true}));return (await enrich(entries)).filter(entry=>!entry.hidden).sort((a,b)=>a.name.localeCompare(b.name,'ko',{numeric:true}));});
   handle('files:list',async value=>{const data=await listDirectory(value);data.entries=await enrich(data.entries);return data;});
   handle('files:preview',value=>preview(value,{thumbnail:async file=>{const image=await nativeImage.createThumbnailFromPath(file,{width:1200,height:900});const size=nativeImage.createFromPath(file).getSize();return {image:image.toDataURL(),width:size.width,height:size.height};},pdfURL:file=>{const token=require('node:crypto').randomUUID();if(pdfPreviews.size>=64)pdfPreviews.delete(pdfPreviews.keys().next().value);pdfPreviews.set(token,{file,time:Date.now()});return 'quadfinder://preview/'+token;}}));
+  ipcMain.on('files:drag-start',(event,input)=>{
+    if(event.sender!==window?.webContents||event.senderFrame!==window.webContents.mainFrame)return;
+    try{const files=require('./file-drag.cjs').dragFiles(input);event.sender.startDrag({file:files[0],files,icon:nativeImage.createFromPath(path.join(app.getAppPath(),'assets/app-icon.png')).resize({width:32,height:32})});}
+    catch(error){send('view:error','파일 드래그를 시작하지 못했습니다: '+error.message);}
+  });
   handle('files:clipboard-write',async input=>{if(!input||!['copy','move'].includes(input.kind)||!Array.isArray(input.paths)||!input.paths.length||input.paths.length>10000)throw new Error('잘못된 클립보드 요청입니다.');return windowsShell.request({mode:'clipboard-write',kind:input.kind,paths:input.paths.map(localPath)});});
   handle('files:clipboard-read',async()=>{const data=await windowsShell.request({mode:'clipboard-read'});return {kind:data.kind,paths:data.paths.filter(value=>{try{localPath(value);return true;}catch{return false;}})};});
   handle('files:copy-path',async values=>{if(!Array.isArray(values)||values.length>10000)throw new Error('잘못된 경로입니다.');clipboard.writeText(values.map(localPath).map(value=>'"'+value+'"').join('\r\n'));});
@@ -386,6 +391,13 @@ async function readDrives(){
   if(!designPreview) startIndex();
   watchRoots();
   await window.loadURL('quadfinder://app/index.html');
+  if(smoke&&process.argv.includes('--native-drag-test')){
+    const deadline=Date.now()+15000;while(Date.now()<deadline&&!(await window.webContents.executeJavaScript('window.__quadfinderReady===true')))await new Promise(r=>setTimeout(r,100));
+    const root=await fs.mkdtemp(path.resolve('output/native-drag-check-'));
+    try{const result=await require('../scripts/external-drag-smoke.cjs').run({window,root});await fs.writeFile(path.resolve('output/native-drag-check.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));}
+    finally{if(path.dirname(root)!==path.resolve('output')||!path.basename(root).startsWith('native-drag-check-'))throw Error('Unexpected test directory');await fs.rm(root,{recursive:true,force:true});}
+    app.quit();return;
+  }
   if(designPreview){
     const deadline=Date.now()+15000;
     while(Date.now()<deadline && !(await window.webContents.executeJavaScript('window.__quadfinderReady === true')))await new Promise(resolve=>setTimeout(resolve,100));

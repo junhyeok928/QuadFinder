@@ -36,6 +36,7 @@ if(process.argv.includes('--quadfinder-design-preview')) {
   onUndo:callback=>{const handler=(_event,data)=>callback(data);ipcRenderer.on('undo:changed',handler);return ()=>ipcRenderer.removeListener('undo:changed',handler);},
   removeRoot:path=>ipcRenderer.invoke('roots:remove',path),
   addRoot:path=>ipcRenderer.invoke('roots:add',path),
+  startFileDrag:paths=>ipcRenderer.send('files:drag-start',paths),
   dropPaths:files=>files.map(file=>require('electron').webUtils.getPathForFile(file)),
   search: (query, filter) => ipcRenderer.invoke('search', query, filter),
   reindex: () => ipcRenderer.invoke('index:rebuild'),
