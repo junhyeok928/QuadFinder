@@ -14,6 +14,7 @@ if(process.argv.includes('--quadfinder-design-preview')) {
   list: path => ipcRenderer.invoke('files:list', path),
   preview:path=>ipcRenderer.invoke('files:preview',path),
   shellMenu:input=>ipcRenderer.invoke('files:shell-menu',input),
+  openTerminal:path=>ipcRenderer.invoke('files:terminal',path),
   writeClipboard:input=>ipcRenderer.invoke('files:clipboard-write',input),
   readClipboard:()=>ipcRenderer.invoke('files:clipboard-read'),
   copyPaths:paths=>ipcRenderer.invoke('files:copy-path',paths),

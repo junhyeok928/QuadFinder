@@ -34,8 +34,9 @@ async function listDirectory(value, {signal, include = () => true,tolerateMetada
   return { path: directory, parent: path.dirname(directory), entries: entries.filter(Boolean).sort(compareEntries),errors };
 }
 
+const entryNames=new Intl.Collator('ko',{numeric:true});
 function compareEntries(a, b) {
-  return Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name, 'ko', { numeric: true });
+  return Number(b.directory) - Number(a.directory) || entryNames.compare(a.name,b.name);
 }
 
 function matches(entry, query, filter = 'all') {

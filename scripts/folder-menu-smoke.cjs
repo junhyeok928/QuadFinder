@@ -1,0 +1,14 @@
+const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
+async function run({window,root,terminal}){
+ const folder=path.join(root,'메뉴 대상; 폴더'),file=path.join(root,'menu-file.txt');await fs.mkdir(folder);await fs.writeFile(file,'menu');
+ const evaluate=code=>window.webContents.executeJavaScript(code),calls=[],saved=terminal.openTerminal;
+ terminal.openTerminal=async value=>{calls.push(value);return {path:value};};
+ try{
+  await evaluate('navigate(0,'+JSON.stringify(root)+')');
+  const result=await evaluate('(async()=>{const saved=nativeMenu,tab=tabOf(state.panes[0]);let properties;nativeMenu=(...args)=>{properties=args;return Promise.resolve();};const popup=document.querySelector("#context-menu"),has=name=>!!popup.querySelector("[data-context="+name+"]");try{selection(tab).clear();modernFileMenu(0,300,200,true);const actions=[...popup.querySelectorAll("[data-context]")].map(b=>b.dataset.context);if(actions.indexOf("folder-properties")>actions.indexOf("terminal")||actions.at(-2)!=="terminal"||actions.at(-1)!=="more")throw Error("Incorrect menu order");const background=has("terminal")&&has("folder-properties")&&popup.querySelector("[data-context=folder-properties]").textContent.includes("속성");popup.querySelector("[data-context=terminal]").click();await fileAction("folder-properties",0,'+JSON.stringify(root)+');const current=properties?.[6];selection(tab).clear();selection(tab).add('+JSON.stringify(folder)+');modernFileMenu(0,300,200,false);const selected=has("terminal")&&popup.querySelector("[data-context=properties]").textContent.includes("속성");popup.querySelector("[data-context=terminal]").click();await fileAction("properties",0);const selectedProperties=properties;selection(tab).clear();selection(tab).add('+JSON.stringify(file)+');modernFileMenu(0,300,200,false);const fileHidden=!has("terminal")&&has("properties");selection(tab).add('+JSON.stringify(folder)+');modernFileMenu(0,300,200,false);const multipleHidden=!has("terminal");const previous=tab.search;tab.search=true;modernFileMenu(0,300,200,true);const searchHidden=!has("terminal")&&!has("folder-properties");tab.search=previous;closeFileMenu(true);return {background,current,selected,selectedProperties,fileHidden,multipleHidden,searchHidden};}finally{nativeMenu=saved;selection(tab).clear();}})()');
+  assert(result.background);assert.deepEqual(result.current,[root]);assert(result.selected);assert.equal(result.selectedProperties[4],'properties');assert(result.fileHidden);assert(result.multipleHidden);assert(result.searchHidden);
+  for(let i=0;i<100&&calls.length<2;i++)await new Promise(resolve=>setTimeout(resolve,20));assert.deepEqual(calls,[root,folder]);
+  return {passed:true,currentFolder:true,selectedFolder:true,terminalIPC:true,fileAndSearchMenus:true};
+ }finally{terminal.openTerminal=saved;}
+}
+module.exports={run};

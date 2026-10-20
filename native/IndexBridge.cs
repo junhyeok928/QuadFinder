@@ -21,6 +21,10 @@ class IndexBridge {
   [DllImport("kernel32.dll",CharSet=CharSet.Unicode)] static extern uint GetDriveType(string path);
   static double Time(System.Runtime.InteropServices.ComTypes.FILETIME value){long file=((long)(uint)value.dwHighDateTime<<32)|(uint)value.dwLowDateTime;return file==0?0:(file-116444736000000000L)/10000.0;}
   static int Main(string[] args){
+    if(args.Length==2&&args[0]=="--elevate"){
+      if(!System.Text.RegularExpressions.Regex.IsMatch(args[1],@"^QuadFinder-index-[0-9a-f-]{36}$"))return 2;
+      try{var start=new System.Diagnostics.ProcessStartInfo(System.Reflection.Assembly.GetExecutingAssembly().Location,"--pipe "+args[1]);start.UseShellExecute=true;start.Verb="runas";start.WindowStyle=System.Diagnostics.ProcessWindowStyle.Hidden;using(var process=System.Diagnostics.Process.Start(start)){process.WaitForExit();return process.ExitCode;}}catch{return 1;}
+    }
     Console.InputEncoding=Encoding.UTF8;Console.OutputEncoding=new UTF8Encoding(false);
     Stream stream=null;TextReader reader=Console.In;TextWriter writer=Console.Out;
     try{

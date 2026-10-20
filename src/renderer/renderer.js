@@ -54,20 +54,22 @@ function typeLabel(entry) {
   const ext = entry.name.split('.').pop().toLowerCase();
   return ({docx:'Microsoft Word 문서',doc:'Microsoft Word 문서',xlsx:'Microsoft Excel 워크시트',xls:'Microsoft Excel 워크시트',pptx:'Microsoft PowerPoint 문서',pdf:'PDF 문서',txt:'텍스트 문서',md:'Markdown 문서',csv:'Microsoft Excel CSV',psd:'Adobe Photoshop 문서',ai:'Adobe Illustrator 문서',exe:'응용 프로그램',zip:'압축(ZIP) 폴더',mp4:'MP4 동영상'})[ext] || `${ext.toUpperCase()} ${fileType(entry)==='image'?'이미지':'파일'}`;
 }
-const thumbnails = new Map();
+const thumbnails = new Map(),thumbnailPending=new Map(),thumbnailRuns=new WeakMap();
 async function decorateThumbnails(rows, entries) {
   if (!api.thumbnail) return;
+  const run={};thumbnailRuns.set(rows,run);
   const targets = Array.from(rows.querySelectorAll('[data-row]')).filter(row => fileType(entries[Number(row.dataset.row)]) === 'image').slice(0,60);
   // Restrict concurrent shell thumbnail requests and retain a small, bounded cache.
-  for (let offset=0; offset<targets.length; offset+=4) await Promise.all(targets.slice(offset,offset+4).map(async row => {
+  for (let offset=0; offset<targets.length; offset+=4) {if(!rows.isConnected||thumbnailRuns.get(rows)!==run)return;await Promise.all(targets.slice(offset,offset+4).map(async row => {
     const entry=entries[Number(row.dataset.row)], key=`${entry.path}:${entry.modified}`;
     try {
       let image=thumbnails.get(key);
-      if(image===undefined){image=await call(api.thumbnail(entry.path));if(thumbnails.size>=256)thumbnails.delete(thumbnails.keys().next().value);thumbnails.set(key,image);}
+      if(image===undefined){let pending=thumbnailPending.get(key);if(!pending){pending=call(api.thumbnail(entry.path));thumbnailPending.set(key,pending);}try{image=await pending;}finally{if(thumbnailPending.get(key)===pending)thumbnailPending.delete(key);}if(thumbnails.size>=256)thumbnails.delete(thumbnails.keys().next().value);thumbnails.set(key,image);}
       const allowed=/^data:image\/(png|jpeg|webp);base64,/.test(image) || (state.boot?.preview && /^data:image\/svg\+xml;base64,/.test(image));
-      if(image && allowed && row.isConnected){const holder=row.querySelector('.file-icon');const img=document.createElement('img');img.src=image;img.alt='';holder.replaceChildren(img);holder.classList.add('thumbnail');}
+      if(image && allowed && row.isConnected&&thumbnailRuns.get(rows)===run){const holder=row.querySelector('.file-icon');const img=document.createElement('img');img.src=image;img.alt='';holder.replaceChildren(img);holder.classList.add('thumbnail');}
     } catch { /* The colour file icon remains when Windows has no thumbnail. */ }
-  }));
+  }));}
+
 }
 function fileType(entry) {
   if (entry.directory) return 'folder';
@@ -268,7 +270,7 @@ async function load(index,preserve=false) { const tab=tabOf(state.panes[index]);
 function newTab(index) { const pane=state.panes[index]; if (pane.tabs.length>=20) return toast('패널당 최대 20개 탭을 사용할 수 있습니다.'); pane.tabs.push(makeTab(tabOf(pane).path,tabOf(pane).view)); pane.active=pane.tabs.length-1; setActive(index); renderPane(index); load(index); save(); }
 async function openEntry(index,entry) {
   if (entry.directory) { if (tabOf(state.panes[index]).search) { const target=state.layout>1?1:0; if (target===index) { newTab(index); } navigate(target,entry.path); setActive(target); } else navigate(index,entry.path); }
-  else if (tabOf(state.panes[index]).search) { const target=state.layout>1?1:0; if (target===index) newTab(index); await navigate(target,entry.parent); const tab=tabOf(state.panes[target]); tab.selected=entry.path;tab.selection=new Set([entry.path]); renderRows(target); setActive(target); }
+  else if (tabOf(state.panes[index]).search) { const target=state.layout>1?1:0; if (target===index) newTab(index); const targetTab=tabOf(state.panes[target]),navigation=navigate(target,entry.parent),request=targetTab.request;await navigation;if(tabOf(state.panes[target])!==targetTab||targetTab.request!==request||targetTab.search||targetTab.error||folderKey(targetTab.path)!==folderKey(entry.parent))return;const tab=targetTab; tab.selected=entry.path;tab.selection=new Set([entry.path]); renderRows(target); setActive(target); }
   else call(api.open(entry.path)).catch(error=>toast(error.message));
 }
 async function runSearch() {
@@ -279,7 +281,7 @@ async function runSearch() {
   const tab=tabOf(pane); tab.search=true; tab.loading=true; tab.loadingMore=false;tab.searchLimit=1000;tab.limit=2000;tab.error=null; tab.request++;
   setActive(0); renderPane(0);syncSidebar();
   try { const result=await call(api.search(state.query,state.filter)); if(result.cancelled||token!==state.request||tabOf(pane)!==tab||!tab.search)return; tab.entries=result.entries;const existing=new Set(result.entries.map(entry=>entry.path));tab.selection=new Set([...selection(tab)].filter(value=>existing.has(value)));tab.total=result.total; tab.loading=false; renderPane(0); }
-  catch(error) { if(token!==state.request)return; tab.error=error.message; tab.loading=false; renderPane(0); }
+  catch(error) { if(token!==state.request||tabOf(pane)!==tab||!tab.search)return; tab.error=error.message; tab.loading=false; renderPane(0); }
 }
 function renderIndexDiagnostics(status){
   const issues=status.issues||{},labels={denied:'권한 부족',timedOut:'시간 초과',missing:'경로 사라짐',other:'기타 오류'};
@@ -330,7 +332,7 @@ async function init() {
   $('#clear-search').onclick=()=>{$('#search').value='';runSearch();$('#search').focus();};
   $('#index-status').onclick=()=>{renderIndexDiagnostics(state.indexStatus||state.boot.indexStatus);$('#index-dialog').showModal();};
   $('#close-index').onclick=()=>$('#index-dialog').close();
-  $('#elevate-index').onclick=async()=>{try{await call(api.elevateIndex());$('#index-dialog').close();toast('Windows 관리자 승인 창을 확인해 주세요.');}catch(error){toast(error.message);}};
+  $('#elevate-index').onclick=async()=>{try{await call(api.elevateIndex());$('#index-dialog').close();toast('관리자 권한으로 인덱싱을 시작했습니다.');}catch(error){toast(error.message);}};
   $('#reindex').onclick=async()=>{try{await call(api.reindex());toast('파일 목록을 다시 수집합니다.');}catch(error){toast(error.message);}};
   $('#folder-dialog').addEventListener('close',async()=>{if($('#folder-dialog').returnValue!=='create')return;try{await call(api.mkdir($('#folder-parent').textContent,$('#folder-name').value));await load(state.active);toast('새 폴더를 만들었습니다.');}catch(error){toast(error.message);}});
   $('#folder-dialog button[value="cancel"]').formNoValidate=true;

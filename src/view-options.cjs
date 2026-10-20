@@ -16,5 +16,21 @@
     if(group==='modified'){const date=new Date(now);date.setHours(0,0,0,0);const age=date.getTime()-entry.modified;return age<0?'오늘':age<86400000?'어제':age<7*86400000?'최근 7일':age<30*86400000?'최근 30일':'이전';}
     return '';
   }
-  return {modes,fields,normalize,displayName,groupKey};
+  const names=new Intl.Collator('ko',{numeric:true}),text=new Intl.Collator('ko');
+  function sortedEntries(source,options,typeLabel){
+    const entries=source.filter(entry=>options.showHidden||!entry.hidden),sort=options.sort;
+    const values=new Map(),groups=new Map(),now=Date.now();
+    for(const entry of entries){
+      if(sort==='type')values.set(entry,typeLabel(entry));
+      if(options.group!=='none')groups.set(entry,groupKey(entry,options.group,now));
+    }
+    if(sort!=='none')entries.sort((a,b)=>{
+      const folders=Number(b.directory)-Number(a.directory);if(folders)return folders;
+      let result=sort==='name'?names.compare(a.name,b.name):sort==='type'?text.compare(values.get(a),values.get(b)):['parent','extension'].includes(sort)?text.compare(String(a[sort]||''),String(b[sort]||'')):(a[sort]||0)-(b[sort]||0);
+      return result*(options.desc?-1:1)||names.compare(a.name,b.name);
+    });
+    if(options.group!=='none')entries.sort((a,b)=>text.compare(groups.get(a),groups.get(b)));
+    return entries;
+  }
+  return {modes,fields,normalize,displayName,groupKey,sortedEntries};
 });

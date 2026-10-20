@@ -21,9 +21,7 @@ class NativeIndex{
       const timer=setTimeout(()=>{server.close();reject(new Error('관리자 인덱싱 연결 시간이 초과되었습니다.'));},65000);
       server.once('error',error=>{clearTimeout(timer);reject(error);});
       server.listen('\\\\.\\pipe\\'+pipe,()=>{
-        const quote=value=>"'"+value.replace(/'/g,"''")+"'";
-        const script=`try { $p=Start-Process -FilePath ${quote(this.file)} -ArgumentList '--pipe',${quote(pipe)} -Verb RunAs -WindowStyle Hidden -PassThru; $p.WaitForExit() } catch { exit 1 }`;
-        this.child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{windowsHide:true,stdio:'ignore'});
+        this.child=spawn(this.file,['--elevate',pipe],{windowsHide:true,stdio:'ignore'});
         this.child.once('error',error=>{clearTimeout(timer);server.close();reject(error);});
         this.child.once('exit',code=>{if(!this.input){clearTimeout(timer);server.close();reject(new Error(code?'관리자 권한 요청이 취소되었거나 실행에 실패했습니다.':'인덱싱 도우미가 연결되지 않았습니다.'));}});
       });

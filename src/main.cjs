@@ -12,6 +12,7 @@ const {handleSquirrel,updateExecutable}=require('./squirrel.cjs');
 const {AppUpdater}=require('./updater.cjs');
 const {WatchManager}=require('./watch-manager.cjs');
 const windowsShell=require('./windows-shell.cjs');
+const terminalLauncher=require('./terminal.cjs');
 const {preview}=require('./file-preview.cjs');
 const {normalize:normalizeNavigation}=require('./navigation-state.cjs');
 const {normalize:normalizeView}=require('./view-options.cjs');
@@ -134,7 +135,7 @@ function startIndex() {
   indexStatus = { indexing: true, count: 0, skipped: 0, limited: false,watchProblems:indexStatus.watchProblems||[] };
   worker = new Worker(path.join(__dirname, 'index-worker.cjs'), { workerData: { roots,excludePaths:indexExclusions(),elevated:indexElevated,dbPath:smoke?null:path.join(app.getPath('userData'),'index.sqlite'),cachePath:smoke?null:path.join(app.getPath('userData'),'index-cache.json') } });
   worker.on('message', message => {
-    if(message.type==='stopped')return;
+    if(message.type==='stopped'||message.type==='elevation-result')return;
     if (message.type === 'results') {
       enrich(message.entries).catch(()=>message.entries).then(entries=>pending.get(message.id)?.resolve({...message,entries})).finally(()=>pending.delete(message.id));
     } else {
@@ -290,8 +291,9 @@ async function readDrives(){
     const paths=input.paths.map(localPath);await Promise.all(paths.map(value=>fs.access(value)));
     if(input.verb&&!['properties','openas','windows.modernshare'].includes(input.verb))throw new Error('허용되지 않은 Windows 명령입니다.');
     const bounds=window.getContentBounds(),point=screen.dipToScreenPoint({x:Math.round(bounds.x+Math.max(0,Math.min(bounds.width,(Number(input.x)||0)*zoomPolicy.physical(zoomFactor)))),y:Math.round(bounds.y+Math.max(0,Math.min(bounds.height,(Number(input.y)||0)*zoomPolicy.physical(zoomFactor))))});
-    shellMenuOpen=true;try{const result=await windowsShell.request({mode:smoke&&input.probe?'probe':'menu',paths,background:input.background===true,extended:input.extended===true,canPaste:input.canPaste===true,viewOptions:normalizeView(input.viewOptions||{}),x:point.x,y:point.y,verb:input.verb});if(!result?.handledByApp&&result?.action==='delete')undo.clear();if(!result?.handledByApp&&result?.action&&!['copy','cut','properties','openas','rename','windows.modernshare'].includes(result.action))filesChanged(paths.concat(paths.map(value=>path.dirname(value))));return result;}finally{shellMenuOpen=false;if(window&&!window.isDestroyed()){window.focus();window.webContents.focus();}}
+    shellMenuOpen=true;try{const result=await windowsShell.request({mode:smoke&&input.probe?'probe':'menu',ownerWindow:window.getNativeWindowHandle().readBigUInt64LE().toString(),paths,background:input.background===true,extended:input.extended===true,canPaste:input.canPaste===true,viewOptions:normalizeView(input.viewOptions||{}),x:point.x,y:point.y,verb:input.verb});if(!result?.handledByApp&&result?.action==='delete')undo.clear();if(!result?.handledByApp&&result?.action&&!['copy','cut','properties','openas','rename','windows.modernshare'].includes(result.action))filesChanged(paths.concat(paths.map(value=>path.dirname(value))));return result;}finally{shellMenuOpen=false;if(window&&!window.isDestroyed()){window.focus();window.webContents.focus();}}
   });
+  handle('files:terminal',value=>terminalLauncher.openTerminal(value));
   handle('files:thumbnail', async value => {
     const file=localPath(value);
     if(!/\.(png|jpe?g|webp|bmp|gif|avif)$/i.test(file))return null;
@@ -363,12 +365,17 @@ async function readDrives(){
   handle('index:elevate',async()=>{
     if(smoke||designPreview||process.platform!=='win32')throw new Error('일반 Windows 실행에서 사용할 수 있습니다.');
     if(indexSwitching||indexElevated)throw new Error('관리자 인덱싱이 이미 진행 중입니다.');
+    if(!worker)startIndex();
     indexSwitching=true;
     try{
-      const previous=worker;worker=null;
-      for(const {reject}of pending.values())reject(new Error('인덱싱 권한을 전환하는 중입니다. 다시 검색하세요.'));pending.clear();
-      if(previous){await new Promise(resolve=>{const timer=setTimeout(resolve,3000);previous.on('message',function stopped(message){if(message.type==='stopped'){previous.off('message',stopped);clearTimeout(timer);resolve();}});previous.postMessage({type:'stop'});});await previous.terminate();}
-      indexElevated=true;indexSwitching=false;startIndex();return true;
+      const current=worker;
+      await new Promise((resolve,reject)=>{
+        const cleanup=()=>{clearTimeout(timer);current.off('message',result);current.off('exit',exited);};
+        const result=message=>{if(message.type!=='elevation-result')return;cleanup();message.ok?resolve():reject(new Error(message.error));};
+        const exited=()=>{cleanup();reject(new Error('인덱싱 도우미가 종료되었습니다.'));};
+        const timer=setTimeout(()=>{cleanup();reject(new Error('관리자 권한 요청 시간이 초과되었습니다.'));},75000);
+        current.on('message',result);current.once('exit',exited);current.postMessage({type:'elevate'});
+      });return true;
     }finally{indexSwitching=false;}
   });
   handle('layout:save', async value => {
@@ -493,6 +500,10 @@ async function readDrives(){
     interactiveDialogSmoke=true;
     try{result.dialogs=await require('../scripts/dialog-smoke.cjs').run({window,root:functionSmokeRoot,output:path.join(app.getAppPath(),'output')});}finally{interactiveDialogSmoke=false;}
     result.interactions=await require('../scripts/interaction-smoke.cjs').run({window,root:functionSmokeRoot});
+    result.folderMenu=await require('../scripts/folder-menu-smoke.cjs').run({window,root:functionSmokeRoot,terminal:terminalLauncher});
+    for(const dismissAction of ['escape','deactivate','escape']){window.focus();const dismissed=await windowsShell.request({mode:'dismiss-test',paths:[functionSmokeRoot],background:true,extended:true,x:200,y:200,dismissAction,ownerWindow:window.getNativeWindowHandle().readBigUInt64LE().toString()});if(!dismissed.cancelled)throw Error('Classic menu did not dismiss: '+dismissAction);}result.classicMenuDismiss=true;
+    const propertyOwner=await windowsShell.request({mode:'properties-test',paths:[functionSmokeRoot],verb:'properties',ownerWindow:window.getNativeWindowHandle().readBigUInt64LE().toString()});if(!propertyOwner.dialogShown||!propertyOwner.ownerLinked)throw Error('Property dialog owner mismatch: '+JSON.stringify(propertyOwner));
+    result.propertyOwner=propertyOwner;
     result.audit=await require('../scripts/audit-smoke.cjs').run({window,root:functionSmokeRoot,clipboard});
     result.refresh=await require('../scripts/refresh-smoke.cjs').run({window,root:functionSmokeRoot,notify:paths=>send('files:changed',paths),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},networkRoot:process.env.QUADFINDER_TEST_NETWORK_ROOT,stateFile:stateFile(),rootsFile:rootsFile()});
     result.sidebar=await require('../scripts/sidebar-smoke.cjs').run({window,root:functionSmokeRoot,saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;},stateFile:stateFile(),appPath:app.getAppPath()});

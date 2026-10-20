@@ -7,23 +7,11 @@ function setView(index,patch){
   if(!tab.options.showHidden)for(const entry of tab.entries)if(entry.hidden)selection(tab).delete(entry.path);
   setActive(index);renderPane(index);save();
 }
-function visibleSorted(index){
-  const tab=tabOf(state.panes[index]),options=viewOf(tab);
-  const entries=tab.entries.filter(entry=>options.showHidden||!entry.hidden);
-  function compare(a,b){const sort=options.sort;let result=0;
-    if(sort==='name')result=a.name.localeCompare(b.name,'ko',{numeric:true});
-    else if(sort==='type')result=typeLabel(a).localeCompare(typeLabel(b),'ko');
-    else if(['parent','extension'].includes(sort))result=String(a[sort]||'').localeCompare(String(b[sort]||''),'ko');
-    else if(sort!=='none')result=(a[sort]||0)-(b[sort]||0);
-    return Number(b.directory)-Number(a.directory)||result*(options.desc?-1:1)||a.name.localeCompare(b.name,'ko',{numeric:true});
-  }
-  if(options.sort!=='none')entries.sort(compare);
-  if(options.group!=='none')entries.sort((a,b)=>ViewOptions.groupKey(a,options.group).localeCompare(ViewOptions.groupKey(b,options.group),'ko'));
-  return entries;
-}
+function visibleSorted(index){const tab=tabOf(state.panes[index]);return ViewOptions.sortedEntries(tab.entries,viewOf(tab),typeLabel);}
 function renderColumns(index){const tab=tabOf(state.panes[index]),options=viewOf(tab);return `<div class="columns">${options.columns.map(column=>`<div class="column" data-column="${column.id}" draggable="true"><button data-sort="${tab.search&&column.id==='modified'?'parent':column.id}" aria-label="${columnFields[column.id]} 정렬">${columnFields[tab.search&&column.id==='modified'?'parent':column.id]}${options.sort===column.id?(options.desc?' ↓':' ↑'):''}</button><span class="column-resize" role="separator" tabindex="0" aria-orientation="vertical" aria-label="${columnFields[column.id]} 열 너비" data-resize="${column.id}" title="드래그하여 너비 조절 · 더블클릭하여 자동 맞춤"></span></div>`).join('')}</div>`;}
 function cellValue(entry,id){return id==='type'?typeLabel(entry):id==='size'?sizeLabel(entry):['modified','created','accessed'].includes(id)?entry[id]?dateLabel(entry[id]):'—':entry[id]||'—';}
-function renderEntryCells(entry,tab){const options=viewOf(tab);return options.columns.map(column=>column.id==='name'?`<span class="file-name">${options.checkboxes?`<input class="item-check" type="checkbox" aria-label="${escapeHTML(entry.name)} 선택" ${selection(tab).has(entry.path)?'checked':''}>`:''}<span class="file-icon ${fileIcon(entry)}">${icon(fileIcon(entry))}</span><span class="entry-label">${escapeHTML(ViewOptions.displayName(entry,options))}${entry.link?' ↗':''}</span></span>`:`<span class="file-cell" data-field="${column.id}" title="${escapeHTML(cellValue(entry,tab.search&&column.id==='modified'?'parent':column.id))}">${escapeHTML(cellValue(entry,tab.search&&column.id==='modified'?'parent':column.id))}</span>`).join('')+(options.view==='content'||options.view==='tile'?`<span class="content-meta">${escapeHTML(typeLabel(entry))} · ${sizeLabel(entry)}<br>${escapeHTML(dateLabel(entry.modified))}${tab.search?`<br>${escapeHTML(entry.parent)}`:''}</span>`:'');}
+function renderValueCell(entry,column,id){const value=escapeHTML(cellValue(entry,id));return `<span class="file-cell" data-field="${column}" title="${value}">${value}</span>`;}
+function renderEntryCells(entry,tab){const options=viewOf(tab);return options.columns.map(column=>column.id==='name'?`<span class="file-name">${options.checkboxes?`<input class="item-check" type="checkbox" aria-label="${escapeHTML(entry.name)} 선택" ${selection(tab).has(entry.path)?'checked':''}>`:''}<span class="file-icon ${fileIcon(entry)}">${icon(fileIcon(entry))}</span><span class="entry-label">${escapeHTML(ViewOptions.displayName(entry,options))}${entry.link?' ↗':''}</span></span>`:renderValueCell(entry,column.id,tab.search&&column.id==='modified'?'parent':column.id)).join('')+(options.view==='content'||options.view==='tile'?`<span class="content-meta">${escapeHTML(typeLabel(entry))} · ${sizeLabel(entry)}<br>${escapeHTML(dateLabel(entry.modified))}${tab.search?`<br>${escapeHTML(entry.parent)}`:''}</span>`:'');}
 function renderFileRows(index,entries){
   const pane=state.panes[index],tab=tabOf(pane),options=viewOf(tab);let previous=null;const collapsed=tab.collapsed||(tab.collapsed=new Set());
   const shown=entries.slice(0,tab.limit||2000);const counts=new Map();for(const entry of shown){const key=ViewOptions.groupKey(entry,options.group);counts.set(key,(counts.get(key)||0)+1);}
@@ -33,14 +21,15 @@ function renderFileRows(index,entries){
   }).join('');
 }
 function positionMenu(menu,x,y){menu.onkeydown=null;menu.hidden=false;menu.style.left=`${Math.max(4,Math.min(x,innerWidth-menu.offsetWidth-8))}px`;menu.style.top=`${Math.max(4,Math.min(y,innerHeight-menu.offsetHeight-8))}px`;}
-function menuIcon(name){const paths={share:'M12 15V3m-4 4 4-4 4 4M7 10H4v11h16V10h-3',group:'M3 4h4v4H3zm0 12h4v4H3zM11 6h10M11 18h10',cut:'M8 8l9 12M8 16L17 4M7 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',copy:'M8 8h12v13H8zM16 8V3H3v13h5',paste:'M8 5H4v16h16V5h-4M8 3h8v4H8z',rename:'M4 8v10h8M4 8h8M16 3v18m-3-18h6m-6 18h6',trash:'M3 6h18M8 6V3h8v3M6 6l1 15h10l1-15M10 10v7m4-7v7',properties:'M12 11v7m0-12v1M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20',open:'M3 5h7l2 3h9l-3 12H3z',reveal:'M3 5h7l2 3h9v12H3z',other:'M3 4h18v16H3zM12 4v16',more:'M4 5h16v14H4zM8 9h8m-8 4h5',view:'M3 3h7v7H3zm11 0h7v7h-7zM3 14h7v7H3zm11 0h7v7h-7z',sort:'M4 6h14M4 12h10M4 18h6m10-6v9m-3-3 3 3 3-3',refresh:'M20 8a8 8 0 1 0 0 8m0-14v6h-6',mkdir:'M3 6h7l2 3h9v12H3zM15 12v6m-3-3h6',path:'M9 15l6-6M8 17l-2 2a4 4 0 0 1-5-5l5-5m10-2 2-2a4 4 0 0 1 5 5l-5 5'};return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]||paths.more}"/></svg>`;}
-function menuButton(action,label,key='',disabled=false){return `<button role="menuitem" data-context="${action}" ${disabled?'disabled':''}>${menuIcon(action)}<span>${label}</span><kbd>${key}</kbd></button>`;}
+function menuIcon(name){const paths={share:'M12 15V3m-4 4 4-4 4 4M7 10H4v11h16V10h-3',group:'M3 4h4v4H3zm0 12h4v4H3zM11 6h10M11 18h10',cut:'M8 8l9 12M8 16L17 4M7 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',copy:'M8 8h12v13H8zM16 8V3H3v13h5',paste:'M8 5H4v16h16V5h-4M8 3h8v4H8z',rename:'M4 8v10h8M4 8h8M16 3v18m-3-18h6m-6 18h6',trash:'M3 6h18M8 6V3h8v3M6 6l1 15h10l1-15M10 10v7m4-7v7',properties:'M12 11v7m0-12v1M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20',open:'M3 5h7l2 3h9l-3 12H3z',reveal:'M3 5h7l2 3h9v12H3z',other:'M3 4h18v16H3zM12 4v16',more:'M4 5h16v14H4zM8 9h8m-8 4h5',view:'M3 3h7v7H3zm11 0h7v7h-7zM3 14h7v7H3zm11 0h7v7h-7z',sort:'M4 6h14M4 12h10M4 18h6m10-6v9m-3-3 3 3 3-3',refresh:'M20 8a8 8 0 1 0 0 8m0-14v6h-6',mkdir:'M3 6h7l2 3h9v12H3zM15 12v6m-3-3h6',terminal:'M4 6l5 6-5 6m8 0h8M2 3h20v18H2z',path:'M9 15l6-6M8 17l-2 2a4 4 0 0 1-5-5l5-5m10-2 2-2a4 4 0 0 1 5 5l-5 5'};return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]||paths.more}"/></svg>`;}
+function menuButton(action,label,key='',disabled=false){return `<button role="menuitem" data-context="${action}" ${disabled?'disabled':''}>${menuIcon(action==='folder-properties'?'properties':action)}<span>${label}</span><kbd>${key}</kbd></button>`;}
 function closeFileMenu(restore=false){
   const menu=$('#context-menu');menu.hidden=true;
   if(restore&&menu.returnFocus?.isConnected)menu.returnFocus.focus({preventScroll:true});
 }
 function modernFileMenu(index,x,y,background=false){
   const menu=$('#context-menu'),entries=selectedEntries(index),tab=tabOf(state.panes[index]);
+  const folderTarget=background?(!tab.search?tab.path:null):entries.length===1&&entries[0].directory?entries[0].path:null;
   menu.className='explorer-menu windows11-menu';menu.returnFocus=document.activeElement;
   menu.setAttribute('aria-label',background?'폴더 메뉴':'파일 메뉴');
   const sameParent=entries.every(entry=>folderKey(entry.parent||'')===folderKey(entries[0]?.parent||''));
@@ -49,17 +38,17 @@ function modernFileMenu(index,x,y,background=false){
   const commandBar=background?'':`<div class="menu-command-bar" role="group" aria-label="파일 작업">${commands.map(([action,label,key,disabled])=>`<button role="menuitem" data-context="${action}" title="${label}${key?' ('+key+')':''}" aria-label="${label}" ${disabled?'disabled':''}>${menuIcon(action)}</button>`).join('')}</div>`;
   const submenu=(action,label)=>`<button role="menuitem" data-context="${action}" aria-haspopup="menu">${menuIcon(action)}<span>${label}</span><span class="menu-chevron" aria-hidden="true">›</span></button>`;
   menu.innerHTML=commandBar+(background?
-    submenu('view','보기')+submenu('sort','정렬 기준')+submenu('group','분류 방법')+menuButton('refresh','새로 고침','F5')+'<hr>'+menuButton('paste','붙여넣기','Ctrl+V',true)+menuButton('mkdir','새 폴더','Ctrl+Shift+N',tab.search):
+    submenu('view','보기')+submenu('sort','정렬 기준')+submenu('group','분류 방법')+menuButton('refresh','새로 고침','F5')+'<hr>'+menuButton('paste','붙여넣기','Ctrl+V',true)+menuButton('mkdir','새 폴더','Ctrl+Shift+N',tab.search)+(folderTarget?menuButton('folder-properties','속성','Alt+Enter',!api.shellMenu):''):
     menuButton('open','열기','Enter',!entries.length)+(entries.length===1&&!entries[0].directory?menuButton('openas','연결 프로그램'):'' )+menuButton('path','경로로 복사','Ctrl+Shift+C',!entries.length)+menuButton('properties','속성','Alt+Enter',!entries.length))+
     '<hr>'+menuButton('select-all',tab.search?'불러온 검색 결과 전체 선택':'폴더 전체 선택','Ctrl+A',tab.loading)+menuButton('select-shown','표시된 항목만 선택','Ctrl+Shift+A',tab.loading)+
-    '<hr>'+menuButton('more','더 많은 옵션 표시','Shift+F10',!api.shellMenu||(background&&tab.search));
+    (folderTarget?'<hr>'+menuButton('terminal','터미널에서 열기','',!api.openTerminal):'')+'<hr>'+menuButton('more','추가 옵션 표시','Shift+F10',!api.shellMenu||(background&&tab.search));
   positionMenu(menu,x,y);
   menu.querySelectorAll('[data-context]').forEach(button=>button.onclick=()=>{
     closeFileMenu();const action=button.dataset.context;
     if(['view','sort','group'].includes(action)){menu.hidden=false;showFileSubmenu(index,menu,button,action);}
     else if(action==='select-all'||action==='select-shown')selectAllEntries(index,action==='select-shown');
     else if(action==='more')nativeMenu(index,x,y,background,undefined,true);
-    else {if(menu.returnFocus?.isConnected)menu.returnFocus.focus({preventScroll:true});fileAction(action,index);}
+    else {if(menu.returnFocus?.isConnected)menu.returnFocus.focus({preventScroll:true});fileAction(action,index,folderTarget);}
   });
   menu.querySelectorAll('[aria-haspopup="menu"]').forEach(button=>button.onpointerenter=()=>showFileSubmenu(index,menu,button,button.dataset.context));
   menu.querySelectorAll('[data-context]:not([aria-haspopup])').forEach(button=>button.onpointerenter=()=>menu.querySelector('.file-submenu')?.remove());
@@ -96,7 +85,7 @@ function showFileSubmenu(index,menu,button,section){
   };
   if(document.activeElement===button)sub.querySelector('button')?.focus({preventScroll:true});
 }
-async function nativeMenu(index,x,y,background=false,verb,extended=false){try{if(!api.shellMenu)return toast('Windows 시스템 메뉴는 데스크톱 앱에서 사용할 수 있습니다.');await clipboardQueue.catch(()=>{});const tab=tabOf(state.panes[index]);const result=await call(api.shellMenu({paths:background?[tab.path]:selectedEntries(index).map(entry=>entry.path),background,x,y,verb,extended,viewOptions:viewOf(tab)}));const action=({rename:'rename',copy:'copy',cut:'cut',paste:'paste',delete:'trash',path:'path',refresh:'refresh',newfolder:'mkdir'})[result?.action];
+async function nativeMenu(index,x,y,background=false,verb,extended=false,targetPaths){try{if(!api.shellMenu)return toast('Windows 시스템 메뉴는 데스크톱 앱에서 사용할 수 있습니다.');if(!verb)await clipboardQueue.catch(()=>{});const tab=tabOf(state.panes[index]);const result=await call(api.shellMenu({paths:targetPaths||(background?[tab.path]:selectedEntries(index).map(entry=>entry.path)),background,x,y,verb,extended,viewOptions:viewOf(tab)}));const action=({rename:'rename',copy:'copy',cut:'cut',paste:'paste',delete:'trash',path:'path',refresh:'refresh',newfolder:'mkdir'})[result?.action];
  const [setting,value]=(result?.action||'').split(':');
  if(['view','sort','group'].includes(setting)&&value)setView(index,{[setting]:value});
  else if(setting==='order')setView(index,{desc:value==='desc'});
@@ -147,14 +136,14 @@ function bindViewFeatures(index){
 }
 async function updateInspector(index){
   const pane=state.panes[index],tab=tabOf(pane),options=viewOf(tab),target=pane.element.querySelector('.inspector-content');if(!target||options.inspector==='off')return;
-  const entries=selectedEntries(index),key=entries.map(e=>e.path+':'+e.modified).join('|')+':'+options.inspector;if(target.dataset.key===key)return;target.dataset.key=key;
+  const entries=selectedEntries(index),key=JSON.stringify([options.inspector,entries.map(e=>[e.path,e.modified,e.size,e.created])]);if(target.dataset.key===key)return;target.dataset.key=key;const request=pane.inspectorRequest=(pane.inspectorRequest||0)+1;
   if(entries.length!==1){target.textContent=entries.length?`${entries.length}개 항목 선택 · ${sizeLabel({size:entries.reduce((sum,e)=>sum+(e.directory?0:e.size),0)})}`:'파일을 선택하세요.';return;}
   const entry=entries[0];target.textContent='불러오는 중…';
-  try{const data=api.preview?await call(api.preview(entry.path)):{...entry,kind:'unsupported'};if(!target.isConnected||target.dataset.key!==key)return;
+  try{await new Promise(resolve=>setTimeout(resolve,75));if(!target.isConnected||target.dataset.key!==key||pane.inspectorRequest!==request)return;const data=api.preview?await call(api.preview(entry.path)):{...entry,kind:'unsupported'};if(!target.isConnected||target.dataset.key!==key||pane.inspectorRequest!==request)return;
     if(options.inspector==='details'){target.innerHTML=`<div class="inspector-icon">${icon(fileIcon(entry))}</div><strong>${escapeHTML(data.name)}</strong><dl>${[['유형',typeLabel(entry)],['위치',data.path],['크기',data.directory?'폴더':sizeLabel(data)],['수정한 날짜',dateLabel(data.modified)],['만든 날짜',data.created?dateLabel(data.created):'—'],...(data.width?[['해상도',`${data.width} × ${data.height}`]]:[])].map(([key,value])=>`<dt>${key}</dt><dd>${escapeHTML(value)}</dd>`).join('')}</dl>`;}
     else if(data.kind==='image'){const image=document.createElement('img');image.src=data.image;image.alt=data.name;target.replaceChildren(image);}
     else if(data.kind==='text'){const pre=document.createElement('pre');pre.textContent=data.text;target.replaceChildren(pre);if(data.truncated)target.append('앞부분 128 KB만 표시합니다.');}
     else if(data.kind==='pdf'){const frame=document.createElement('iframe');frame.src=data.url;frame.title=data.name;target.replaceChildren(frame);}
     else target.textContent=data.kind==='folder'?'폴더를 선택했습니다.':data.message||'이 파일 형식은 미리보기를 지원하지 않습니다.';
-  }catch(error){if(target.isConnected&&target.dataset.key===key)target.textContent=error.message;}
+  }catch(error){if(target.isConnected&&target.dataset.key===key&&pane.inspectorRequest===request)target.textContent=error.message;}
 }

@@ -11,7 +11,11 @@ test('Windows shell exposes real file/background menus and native hidden attribu
     const file=await shell.request({mode:'probe',paths:[first,second]});assert(file.count>5);assert(file.labels.length>0);assert(file.verbs.includes('properties'),JSON.stringify(file));assert(file.verbs.includes('copy'),JSON.stringify(file));
     const background=await shell.request({mode:'probe',paths:[root],background:true});assert(background.count>0);assert(background.hostActions.includes('paste'));assert(background.hostActions.includes('view:details'));assert(background.hostActions.includes('newfolder'));
     const nested=path.join(root,'nested');await fs.mkdir(nested);const third=path.join(nested,'third.txt');await fs.writeFile(third,'three');const mixed=await shell.request({mode:'probe',paths:[first,third]});assert(mixed.count>0);assert(mixed.verbs.includes('copy'));
+    const properties=await shell.request({mode:'properties-test',paths:[nested],verb:'properties'});assert.equal(properties.dialogShown,true);assert.equal(properties.ownerLinked,true);assert.equal(properties.directProperties,true);
+    const fileProperties=await shell.request({mode:'properties-test',paths:[first],verb:'properties'});assert(fileProperties.dialogShown&&fileProperties.ownerLinked&&fileProperties.directProperties);
+    const multiProperties=await shell.request({mode:'properties-test',paths:[first,second],verb:'properties'});assert(multiProperties.dialogShown&&multiProperties.ownerLinked);assert.equal(multiProperties.directProperties,false);
     const dismissed=await shell.request({mode:'dismiss-test',paths:[first],x:30,y:30});assert.equal(dismissed.cancelled,true);
+    for(const dismissAction of ['escape','deactivate','escape']){const result=await shell.request({mode:'dismiss-test',paths:[root],background:true,extended:true,x:30,y:30,dismissAction});assert.equal(result.cancelled,true,dismissAction);}
     await backgroundCommands({shell,root});
   }finally{assert(path.basename(root).startsWith('quadfinder-shell-'));await fs.rm(root,{recursive:true,force:true});}
 });

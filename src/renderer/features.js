@@ -20,8 +20,8 @@ function selectAllEntries(index=state.active,shownOnly=false){
   toast(`${scope} ${entries.length.toLocaleString()}개 선택${tab.search&&tab.entries.length<tab.total?' · 아직 불러오지 않은 검색 결과는 제외됩니다.':''}`);
 }
 function updateSelection(index){
-  const pane=state.panes[index],tab=tabOf(pane),selected=selection(tab);
-  pane.element.querySelectorAll('.file-row').forEach(row=>{const entry=pane.visibleEntries[Number(row.dataset.row)];const isSelected=selected.has(entry.path);row.classList.toggle('selected',isSelected);row.setAttribute('aria-selected',isSelected);const check=row.querySelector('.item-check');if(check)check.checked=isSelected;row.classList.toggle('cut',fileClipboard?.kind==='move'&&fileClipboard.paths.includes(entry.path));});
+  const pane=state.panes[index],tab=tabOf(pane),selected=selection(tab),cutPaths=fileClipboard?.kind==='move'?new Set(fileClipboard.paths):null;
+  pane.element.querySelectorAll('.file-row').forEach(row=>{const entry=pane.visibleEntries[Number(row.dataset.row)];const isSelected=selected.has(entry.path);row.classList.toggle('selected',isSelected);row.setAttribute('aria-selected',isSelected);const check=row.querySelector('.item-check');if(check)check.checked=isSelected;row.classList.toggle('cut',cutPaths?.has(entry.path)===true);});
   pane.element.querySelector('.selection-info').textContent=selected.size>1?`${selected.size}개 선택`:selected.size?basename([...selected][0]):'';
   updateInspector(index);
   const bar=pane.element.querySelector('.file-actions');
@@ -83,9 +83,15 @@ async function transfer(kind,sources,destination,options={}){
   try{if(!api.startOperation)throw new Error('예시 화면에서는 파일 작업을 실행할 수 없습니다.');const id=await call(api.startOperation({kind,sources,destination,drop:options.drop===true}));if(id){if($('#operations-panel').hidden)jobsManuallyOpened=false;$('#operations-panel').hidden=false;scheduleJobsHide();}return id;}
   catch(error){toast(error.message);return null;}
 }
-async function fileAction(action,index=state.active){
+async function fileAction(action,index=state.active,folderPath){
   const pane=state.panes[index],tab=tabOf(pane),entries=selectedEntries(index),destinationPath=tab.path;setActive(index);
   try{
+    if(action==='terminal'||action==='folder-properties'){
+      const folder=folderPath||(entries.length===1&&entries[0].directory?entries[0].path:!entries.length&&!tab.search?tab.path:null);
+      if(!folder)return toast('폴더 하나를 선택하세요.');
+      if(action==='terminal'){if(!api.openTerminal)throw new Error('터미널은 Windows 앱에서 열 수 있습니다.');await call(api.openTerminal(folder));return;}
+      const rect=pane.element.getBoundingClientRect();await nativeMenu(index,rect.x+40,rect.y+60,false,'properties',false,[folder]);return;
+    }
     if(action==='menu'){const rect=pane.element.querySelector('[data-file-action="menu"]').getBoundingClientRect();showFileMenu(index,rect.left,rect.top,entries.length===0);}
     if(action==='copy'||action==='cut'){
       if(!entries.length)return toast('파일이나 폴더를 선택하세요.');
