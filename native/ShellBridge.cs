@@ -7,6 +7,8 @@ using System.Collections.Specialized;
 using System.Runtime.InteropServices;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
+using Microsoft.Win32;
+using System.Text.RegularExpressions;
 
 // Runs shell extensions out of Electron's process. All input is JSON over stdin.
 class ShellBridge : Form {
@@ -14,8 +16,16 @@ class ShellBridge : Form {
   readonly Dictionary<uint,string> hostCommands=new Dictionary<uint,string>();
   IContextMenu menu; IContextMenu2 menu2; IContextMenu3 menu3;
   [DllImport("kernel32.dll",CharSet=CharSet.Unicode)] static extern uint GetDriveType(string root);
-  [STAThread] static int Main(){
+  [STAThread] static int Main(string[] args){
     SetProcessDPIAware();Console.InputEncoding=Encoding.UTF8;Console.OutputEncoding=new UTF8Encoding(false);
+    if(args.Contains("--menu-server")){
+      Application.OleRequired();Console.WriteLine(json.Serialize(new {ready=true}));string line;
+      while((line=Console.ReadLine())!=null){
+        try{var request=json.Deserialize<Dictionary<string,object>>(line);using(var form=new ShellBridge()){Console.WriteLine(json.Serialize(new {ok=true,value=form.Run(request)}));}}
+        catch(Exception error){Console.WriteLine(json.Serialize(new {ok=false,error=error.Message}));}
+      }
+      return 0;
+    }
     try{var input=json.Deserialize<Dictionary<string,object>>(Console.In.ReadToEnd());object result;
       string mode=(string)input["mode"];
       if(mode=="network-drives"||mode=="local-drives"){result=Enumerable.Range(65,26).Select(i=>((char)i)+":\\").Where(p=>mode=="network-drives"?GetDriveType(p)==4:(GetDriveType(p)==3||GetDriveType(p)==2)).ToArray();Console.WriteLine(json.Serialize(new {ok=true,value=result}));return 0;}
@@ -31,6 +41,9 @@ class ShellBridge : Form {
   object Run(Dictionary<string,object> input){
     var paths=Paths(input);if(paths.Length<1)throw new Exception("파일을 선택하세요.");
     bool background=input.ContainsKey("background")&&(bool)input["background"];
+    if(background&&(string)input["mode"]=="menu"&&!input.ContainsKey("verb")){
+      try{var clipboard=ReadClipboard();input["canPaste"]=clipboard!=null&&clipboard.GetDataPresent(DataFormats.FileDrop);}catch(ExternalException){input["canPaste"]=false;}
+    }
     bool mixed=!background&&paths.Select(p=>Path.GetDirectoryName(p)??Path.GetPathRoot(p)).Distinct(StringComparer.OrdinalIgnoreCase).Count()>1;
     var pidls=new List<IntPtr>();object shell=null;IntPtr popup=IntPtr.Zero;
     try{
@@ -45,8 +58,13 @@ class ShellBridge : Form {
       menu2=menu as IContextMenu2;menu3=menu as IContextMenu3;
       popup=CreatePopupMenu();if(background)BuildHostMenu(popup,input);if(mixed){AddHost(popup,"잘라내기(&T)","cut");AddHost(popup,"복사(&C)","copy");AddHost(popup,"삭제(&D)","delete");AddHost(popup,"경로로 복사(&A)","path");}else Marshal.ThrowExceptionForHR(menu.QueryContextMenu(popup,(uint)GetMenuItemCount(popup),1,0x6fff,0x4|0x10|(input.ContainsKey("extended")&&(bool)input["extended"]?0x100u:0u)));
       if(background)for(int i=GetMenuItemCount(popup)-1;i>=0;i--){uint id=GetMenuItemID(popup,i);if(id<1||id>0x6fff)continue;var folderLabel=new StringBuilder(512);GetMenuString(popup,(uint)i,folderLabel,512,0x400);var label=folderLabel.ToString();if(label.StartsWith("새 폴더(")||label.StartsWith("New folder",StringComparison.OrdinalIgnoreCase))DeleteMenu(popup,(uint)i,0x400);}
+      if((string)input["mode"]=="warmup")return new {ready=true};
       if((string)input["mode"]=="probe")return new {count=GetMenuItemCount(popup),labels=Labels(popup),verbs=Verbs(popup).Concat(hostCommands.Values).ToArray(),hostActions=hostCommands.Values.ToArray()};
       string verb=input.ContainsKey("verb")?(string)input["verb"]:null;uint command=0;
+      if((string)input["mode"]=="invoke-test"){
+        for(int i=0;i<GetMenuItemCount(popup);i++){uint id=GetMenuItemID(popup,i);if(id<1||id>0x6fff)continue;var name=new StringBuilder(512);if(menu.GetCommandString(new UIntPtr(id-1),0,IntPtr.Zero,name,512)==0&&String.Equals(name.ToString(),verb,StringComparison.OrdinalIgnoreCase)){command=id;break;}}
+        if(command==0)throw new Exception("메뉴에서 실행할 명령을 찾을 수 없습니다.");
+      }
       if(verb==null){
         ShowInTaskbar=false;FormBorderStyle=FormBorderStyle.None;Opacity=0;Width=1;Height=1;StartPosition=FormStartPosition.Manual;
         Left=Convert.ToInt32(input["x"]);Top=Convert.ToInt32(input["y"]);Show();Activate();SetForegroundWindow(Handle);
@@ -60,19 +78,51 @@ class ShellBridge : Form {
         if(new[]{"rename","copy","cut","paste","delete","refresh","newfolder"}.Contains(verb.ToLowerInvariant()))return new {action=verb.ToLowerInvariant(),handledByApp=true};
       }
       if(menu==null)throw new Exception("다른 폴더의 항목은 복사·잘라내기·삭제·경로 복사를 지원합니다. 속성은 같은 폴더의 항목을 선택해 주세요.");
+      // Static background verbs have no selected item in IContextMenu. Supply the
+      // current folder explicitly for %V/%1 rather than invoking an empty selection.
+      if(background&&InvokeBackgroundCommand(verb,paths[0],(string)input["mode"]=="invoke-test"))return new {action=verb,dialogShown=false};
       bool dialogShown=false;System.Windows.Forms.Timer closeDialog=null;
       if((string)input["mode"]=="properties-test"){closeDialog=new System.Windows.Forms.Timer();closeDialog.Interval=500;closeDialog.Tick+=delegate{uint current=(uint)System.Diagnostics.Process.GetCurrentProcess().Id;EnumWindows(delegate(IntPtr h,IntPtr p){uint owner;GetWindowThreadProcessId(h,out owner);if(owner==current&&h!=Handle&&IsWindowVisible(h)){dialogShown=true;PostMessage(h,0x10,IntPtr.Zero,IntPtr.Zero);}return true;},IntPtr.Zero);};closeDialog.Start();}
-      IntPtr text=IntPtr.Zero,wide=IntPtr.Zero;
+      IntPtr text=IntPtr.Zero,wide=IntPtr.Zero,directory=IntPtr.Zero,directoryWide=IntPtr.Zero;
       try{
-        var info=new InvokeInfo();info.cbSize=Marshal.SizeOf(info);info.fMask=0x4000|0x100; /* UNICODE | NOASYNC */ info.hwnd=Handle;info.nShow=1;
+        var info=new InvokeInfo();info.cbSize=Marshal.SizeOf(info);info.fMask=0x4000|0x100; /* UNICODE | NOASYNC */ if((string)input["mode"]=="invoke-test")info.fMask|=0x400;info.hwnd=Handle;info.nShow=1;
+        string workingDirectory=background?paths[0]:Path.GetDirectoryName(paths[0])??Path.GetPathRoot(paths[0]);
+        info.lpDirectory=directory=Marshal.StringToCoTaskMemAnsi(workingDirectory);info.lpDirectoryW=directoryWide=Marshal.StringToCoTaskMemUni(workingDirectory);
         if(command!=0){info.lpVerb=new IntPtr(command-1);info.lpVerbW=new IntPtr(command-1);}else{info.lpVerb=text=Marshal.StringToCoTaskMemAnsi(verb);info.lpVerbW=wide=Marshal.StringToCoTaskMemUni(verb);}
         Marshal.ThrowExceptionForHR(menu.InvokeCommand(ref info));
         // Keep the STA alive for shell-owned property/open-with dialogs.
         var until=DateTime.UtcNow.AddMilliseconds(600);do{Application.DoEvents();System.Threading.Thread.Sleep(20);}while(DateTime.UtcNow<until);
         while(HasVisibleOwnedWindow()){Application.DoEvents();System.Threading.Thread.Sleep(30);}
         return new {action=verb,dialogShown=dialogShown};
-      }finally{if(closeDialog!=null)closeDialog.Dispose();if(text!=IntPtr.Zero)Marshal.FreeCoTaskMem(text);if(wide!=IntPtr.Zero)Marshal.FreeCoTaskMem(wide);}
-    }finally{if(popup!=IntPtr.Zero)DestroyMenu(popup);if(menu!=null)Marshal.ReleaseComObject(menu);if(shell!=null)Marshal.ReleaseComObject(shell);foreach(var pidl in pidls)Marshal.FreeCoTaskMem(pidl);}
+      }finally{if(closeDialog!=null)closeDialog.Dispose();if(text!=IntPtr.Zero)Marshal.FreeCoTaskMem(text);if(wide!=IntPtr.Zero)Marshal.FreeCoTaskMem(wide);if(directory!=IntPtr.Zero)Marshal.FreeCoTaskMem(directory);if(directoryWide!=IntPtr.Zero)Marshal.FreeCoTaskMem(directoryWide);}
+    }finally{menu2=null;menu3=null;if(popup!=IntPtr.Zero)DestroyMenu(popup);if(menu!=null){Marshal.ReleaseComObject(menu);menu=null;}if(shell!=null)Marshal.ReleaseComObject(shell);foreach(var pidl in pidls)Marshal.FreeCoTaskMem(pidl);}
+  }
+  static bool InvokeBackgroundCommand(string verb,string folder,bool testing){
+    if(String.IsNullOrEmpty(verb)||verb.IndexOfAny(new[]{'\\','/','\0'})>=0)return false;
+    using(var key=Registry.ClassesRoot.OpenSubKey(@"Directory\Background\shell\"+verb)){
+      if(key==null||key.GetValue("ExplorerCommandHandler")!=null)return false;
+      using(var commandKey=key.OpenSubKey("command")){
+        if(commandKey==null||commandKey.GetValue("DelegateExecute")!=null)return false;
+        using(var dde=key.OpenSubKey("ddeexec"))if(dde!=null)return false;
+        string command=commandKey.GetValue(null,null,RegistryValueOptions.DoNotExpandEnvironmentNames) as string;
+        if(String.IsNullOrWhiteSpace(command))return false;
+        // Expand registration environment variables before replacing folder tokens,
+        // in a single pass so percent signs in user folder names stay literal.
+        command=Environment.ExpandEnvironmentVariables(command);
+        if(Regex.IsMatch(command,@"%[iI]"))return false;
+        string template=command;
+        command=Regex.Replace(template,@"%([vVlLwW1]|[2-9*])",match=>{
+          if(!"vVlLwW1".Contains(match.Groups[1].Value))return "";
+          string value=folder;
+          if(match.Index+match.Length<template.Length&&template[match.Index+match.Length]=='"')value=Regex.Replace(value,@"\\+$",end=>end.Value+end.Value);
+          return value;
+        });
+        var startup=new StartupInfo();startup.cb=Marshal.SizeOf(startup);if(testing){startup.dwFlags=1;startup.wShowWindow=0;}
+        ProcessInfo process;
+        if(!CreateProcess(null,new StringBuilder(command),IntPtr.Zero,IntPtr.Zero,false,0x10,IntPtr.Zero,folder,ref startup,out process))throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        CloseHandle(process.hThread);CloseHandle(process.hProcess);return true;
+      }
+    }
   }
   void AddHost(IntPtr target,string label,string action,bool enabled=true,bool selected=false){uint id=0x7000u+(uint)hostCommands.Count;hostCommands[id]=action;AppendMenu(target,(enabled?0u:1u)|(selected?8u:0u),new UIntPtr(id),label);}
   void BuildHostMenu(IntPtr target,Dictionary<string,object> input){
@@ -95,6 +145,10 @@ class ShellBridge : Form {
     }base.WndProc(ref m);
   }
   [StructLayout(LayoutKind.Sequential)]struct InvokeInfo{public int cbSize;public uint fMask;public IntPtr hwnd,lpVerb,lpParameters,lpDirectory;public int nShow;public uint dwHotKey;public IntPtr hIcon,lpTitle,lpVerbW,lpParametersW,lpDirectoryW,lpTitleW;public int x,y;}
+  [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)]struct StartupInfo{public int cb;public string lpReserved,lpDesktop,lpTitle;public uint dwX,dwY,dwXSize,dwYSize,dwXCountChars,dwYCountChars,dwFillAttribute,dwFlags;public ushort wShowWindow,cbReserved2;public IntPtr lpReserved2,hStdInput,hStdOutput,hStdError;}
+  [StructLayout(LayoutKind.Sequential)]struct ProcessInfo{public IntPtr hProcess,hThread;public uint processId,threadId;}
+  [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)]static extern bool CreateProcess(string application,StringBuilder command,IntPtr processAttributes,IntPtr threadAttributes,bool inherit,uint flags,IntPtr environment,string directory,ref StartupInfo startup,out ProcessInfo process);
+  [DllImport("kernel32.dll")]static extern bool CloseHandle(IntPtr handle);
   [ComImport,Guid("000214E4-0000-0000-C000-000000000046"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]interface IContextMenu{
     [PreserveSig]int QueryContextMenu(IntPtr menu,uint index,uint first,uint last,uint flags);
     [PreserveSig]int InvokeCommand(ref InvokeInfo info);

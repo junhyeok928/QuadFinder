@@ -96,7 +96,7 @@ function showFileSubmenu(index,menu,button,section){
   };
   if(document.activeElement===button)sub.querySelector('button')?.focus({preventScroll:true});
 }
-async function nativeMenu(index,x,y,background=false,verb,extended=false){try{if(!api.shellMenu)return toast('Windows 시스템 메뉴는 데스크톱 앱에서 사용할 수 있습니다.');await clipboardQueue.catch(()=>{});const copied=background?await readFileClipboard():null;const tab=tabOf(state.panes[index]);const result=await call(api.shellMenu({paths:background?[tab.path]:selectedEntries(index).map(entry=>entry.path),background,x,y,verb,extended,canPaste:!!copied?.paths.length,viewOptions:viewOf(tab)}));const action=({rename:'rename',copy:'copy',cut:'cut',paste:'paste',delete:'trash',path:'path',refresh:'refresh',newfolder:'mkdir'})[result?.action];
+async function nativeMenu(index,x,y,background=false,verb,extended=false){try{if(!api.shellMenu)return toast('Windows 시스템 메뉴는 데스크톱 앱에서 사용할 수 있습니다.');await clipboardQueue.catch(()=>{});const tab=tabOf(state.panes[index]);const result=await call(api.shellMenu({paths:background?[tab.path]:selectedEntries(index).map(entry=>entry.path),background,x,y,verb,extended,viewOptions:viewOf(tab)}));const action=({rename:'rename',copy:'copy',cut:'cut',paste:'paste',delete:'trash',path:'path',refresh:'refresh',newfolder:'mkdir'})[result?.action];
  const [setting,value]=(result?.action||'').split(':');
  if(['view','sort','group'].includes(setting)&&value)setView(index,{[setting]:value});
  else if(setting==='order')setView(index,{desc:value==='desc'});

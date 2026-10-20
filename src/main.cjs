@@ -58,7 +58,7 @@ let operations;
 let undo;
 let updater;
 let functionSmokeRoot=null,interactiveDialogSmoke=false;
-let indexTimer, changedTimer, rootsSave=Promise.resolve();
+let indexTimer, changedTimer, menuWarmTimer, rootsSave=Promise.resolve();
 const changedPaths=new Set(),changedFolders=new Set();
 let refreshAll=false,recoveryTimer;
 const {key:pathKey}=require('./change-policy.cjs');
@@ -394,6 +394,9 @@ async function readDrives(){
   if(!designPreview) startIndex();
   watchRoots();
   await window.loadURL('quadfinder://app/index.html');
+  if(!smoke&&!designPreview&&!networkPath(app.getPath('home'),networkDrives)){
+    menuWarmTimer=setTimeout(()=>windowsShell.warmMenu(app.getPath('home')).catch(()=>{}),500);menuWarmTimer.unref?.();
+  }
   if(smoke&&process.argv.includes('--native-drag-test')){
     const deadline=Date.now()+15000;while(Date.now()<deadline&&!(await window.webContents.executeJavaScript('window.__quadfinderReady===true')))await new Promise(r=>setTimeout(r,100));
     const root=await fs.mkdtemp(path.resolve('output/native-drag-check-'));
@@ -518,4 +521,4 @@ async function readDrives(){
 app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.show();window.focus();}});
 if(ownsInstance)app.whenReady().then(setup).catch(error => { console.error(error); app.exit(1); });
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', event => {if(operations?.active()){event.preventDefault();window?.show();return;}if(zoomSaveTimer){event.preventDefault();clearTimeout(zoomSaveTimer);zoomSaveTimer=null;writeSettings({}).then(()=>app.quit()).catch(error=>send('view:error',error.message));return;}updater?.stop();worker?.terminate();rootWatchers.close();folderWatchers.close();clearTimeout(recoveryTimer);clearTimeout(indexTimer);clearTimeout(changedTimer);});
+app.on('before-quit', event => {if(operations?.active()){event.preventDefault();window?.show();return;}if(zoomSaveTimer){event.preventDefault();clearTimeout(zoomSaveTimer);zoomSaveTimer=null;writeSettings({}).then(()=>app.quit()).catch(error=>send('view:error',error.message));return;}updater?.stop();clearTimeout(menuWarmTimer);windowsShell.closeMenu();worker?.terminate();rootWatchers.close();folderWatchers.close();clearTimeout(recoveryTimer);clearTimeout(indexTimer);clearTimeout(changedTimer);});
