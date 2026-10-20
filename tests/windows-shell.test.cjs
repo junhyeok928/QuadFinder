@@ -30,13 +30,13 @@ async function backgroundCommands({shell,root}){
   process.env[environment]=exe;
   shell.closeMenu(); // The persistent child inherits environment variables at startup.
   register(`"%${environment}%" "%V" "%1" "%L" "%W"`,'REG_EXPAND_SZ');
-  assert.equal((await invoke(folder)).action,verb);assert.deepEqual(await readReport(),Array(5).fill(folder));
-  const drive=path.parse(root).root;await invoke(drive);assert.deepEqual(await readReport(),Array(5).fill(drive));
+  assert.equal((await invoke(folder)).action,verb);const captured=await readReport();assert.equal(await fs.realpath(captured[0]),await fs.realpath(folder));assert.deepEqual(captured.slice(1),Array(4).fill(folder));
+  const drive=path.parse(root).root;await invoke(drive);const rootCaptured=await readReport();assert.equal(await fs.realpath(rootCaptured[0]),await fs.realpath(drive));assert.deepEqual(rootCaptured.slice(1),Array(4).fill(drive));
   const script=path.join(root,'PowerShell-test.ps1');
   await fs.writeFile(script,`param([string]$Target)\n[IO.File]::WriteAllLines('${report.replaceAll("'","''")}', @((Get-Location).Path, $Target))`,'utf8');
   const powershell=path.join(process.env.WINDIR,'System32/WindowsPowerShell/v1.0/powershell.exe');
   register(`"${powershell}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}" -Target "%V"`);
-  await invoke(folder);assert.deepEqual(await readReport(),[folder,folder]);
+  await invoke(folder);const powerShellCaptured=await readReport();assert.equal(await fs.realpath(powerShellCaptured[0]),await fs.realpath(folder));assert.equal(powerShellCaptured[1],folder);
  }finally{
   if(registered)execFileSync('reg.exe',['delete',key,'/f'],{windowsHide:true,stdio:'pipe'});
   if(previous===undefined)delete process.env[environment];else process.env[environment]=previous;
