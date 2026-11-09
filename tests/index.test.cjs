@@ -14,7 +14,7 @@ function message(worker,predicate){return new Promise((resolve,reject)=>{
   const cleanup=()=>{clearTimeout(timer);worker.off('message',receive);worker.off('error',error);};
   worker.on('message',receive);worker.on('error',error);
 });}
-test('search can expand past 1000 results without duplicates and keeps the full count',async()=>{
+test('search can expand past 1000 results without duplicates and reports a lower bound until exhausted',async()=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'quadfinder-index-pages-'));let worker;
   try{
     for(let offset=0;offset<1205;offset+=50)await Promise.all(Array.from({length:Math.min(50,1205-offset)},(_,i)=>fs.writeFile(path.join(root,`page-${String(offset+i).padStart(4,'0')}.txt`),'x')));
@@ -22,7 +22,7 @@ test('search can expand past 1000 results without duplicates and keeps the full 
     await message(worker,value=>value.type==='status'&&!value.indexing);
     async function search(id,limit,query='page-'){const result=message(worker,value=>value.type==='results'&&value.id===id);worker.postMessage({id,query,filter:'all',limit});return result;}
     const first=await search(1,1000),all=await search(2,2000);
-    assert.equal(first.total,1205);assert.equal(first.entries.length,1000);assert.equal(all.total,1205);assert.equal(all.entries.length,1205);
+    assert.equal(first.total,1001);assert.equal(first.totalExact,false);assert.equal(all.totalExact,true);assert.equal(first.entries.length,1000);assert.equal(all.total,1205);assert.equal(all.entries.length,1205);
     assert.deepEqual(all.entries.slice(0,1000),first.entries);assert.equal(new Set(all.entries.map(entry=>entry.path)).size,1205);
     assert.equal((await search(3,1000,'page-1204')).entries[0].name,'page-1204.txt');
     await fs.unlink(path.join(root,'page-0000.txt'));

@@ -35,7 +35,7 @@ class NativeIndex{
     return new Promise((resolve,reject)=>{const pending={resolve,reject,entries:[],signal};pending.cancel=()=>{const error=Object.assign(new Error('Index read cancelled'),{code:'ABORT_ERR'});this.finish(error);this.close();};pending.timer=setTimeout(()=>{this.finish(Object.assign(new Error('폴더 응답 시간 초과'),{code:'ETIMEDOUT'}));this.close();},timeout);this.pending=pending;signal?.addEventListener('abort',pending.cancel,{once:true});this.input.write(JSON.stringify(input)+'\n',error=>{if(error)this.fail(error);});});
   }
   async list(directory,options={}){const result=await this.request({mode:'list',path:directory},options);return {...result,entries:result.entries.filter(entry=>!options.include||options.include(entry.path))};}
-  async stat(value,options={}){const info=await this.request({mode:'stat',path:value},options);return {isDirectory:()=>info.directory,isSymbolicLink:()=>info.link,size:info.size,mtimeMs:info.modified,birthtimeMs:info.created,atimeMs:info.accessed};}
+  async stat(value,options={}){const info=await this.request({mode:'stat',path:value},options);return {isDirectory:()=>info.directory,isSymbolicLink:()=>info.link,size:info.size,mtimeMs:info.modified,birthtimeMs:info.created,atimeMs:info.accessed,hidden:info.hidden,system:info.system,readOnly:info.readOnly};}
   close(){this.closed=true;this.input?.end();this.input?.destroy?.();this.child?.kill();this.server?.close();this.lines?.close();}
 }
 module.exports={NativeIndex,executable};

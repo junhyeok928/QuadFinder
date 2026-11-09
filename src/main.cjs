@@ -136,8 +136,9 @@ function startIndex() {
   worker = new Worker(path.join(__dirname, 'index-worker.cjs'), { workerData: { roots,excludePaths:indexExclusions(),elevated:indexElevated,dbPath:smoke?null:path.join(app.getPath('userData'),'index.sqlite'),cachePath:smoke?null:path.join(app.getPath('userData'),'index-cache.json') } });
   worker.on('message', message => {
     if(message.type==='stopped'||message.type==='elevation-result')return;
+    if(message.type==='search-error'){pending.get(message.id)?.reject(new Error(message.message));pending.delete(message.id);return;}
     if (message.type === 'results') {
-      enrich(message.entries).catch(()=>message.entries).then(entries=>pending.get(message.id)?.resolve({...message,entries})).finally(()=>pending.delete(message.id));
+      pending.get(message.id)?.resolve(message);pending.delete(message.id);
     } else {
       indexStatus = message.type === 'error' ? { ...indexStatus, indexing: false, error: message.message } : {...message,watchProblems:indexStatus.watchProblems||[]};
       if(message.type==='status'&&typeof message.elevated==='boolean')indexElevated=message.elevated;

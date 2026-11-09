@@ -1,14 +1,15 @@
 const {parentPort,workerData}=require('node:worker_threads');
 const fs=require('node:fs/promises');
-const {matches,listDirectory}=require('./files.cjs');
+const {compileMatcher,listDirectory}=require('./files.cjs');
 const {IndexEngine}=require('./index-engine.cjs');
 const {IndexStore}=require('./index-store.cjs');
 const {key}=require('./index-paths.cjs');
 const {NativeIndex}=require('./native-index.cjs');
+const {indexedQuery}=require('./name-search.cjs');
 const send=value=>parentPort.postMessage(value);
 const store=new IndexStore(workerData.dbPath||(workerData.cachePath?workerData.cachePath+'.sqlite':':memory:'));
 let native,indexing=false,initialized=false,requested=workerData.roots,controller,searchGeneration=0,elevated=!!workerData.elevated,elevationError;
-let switching=false;
+let switching=false,stopped=false;
 const updates=new Map();
 async function read(value,options){
   if(process.platform!=='win32'||workerData.native===false)return listDirectory(value,options);
@@ -19,28 +20,34 @@ const stat=async(value,options)=>{if(process.platform!=='win32'||workerData.nati
 const engine=new IndexEngine({roots:workerData.roots,excluded:workerData.excludePaths||[],store,read,stat,onProgress:status=>send({type:'status',indexing:true,elevated,elevationError,...status})});
 engine.failures=new Map((store.getMeta('problems')||[]).map(error=>[key(error.path),error]));
 async function pump(){
-  if(indexing||!initialized||switching)return;indexing=true;
+  if(indexing||!initialized||switching||stopped)return;indexing=true;
   try{
-    while(!switching&&(requested||updates.size)){
+    while(!switching&&!stopped&&(requested||updates.size)){
       const full=!!requested;
-      if(full){engine.setRoots(requested);requested=null;}
-      const values=full?engine.roots:[...updates.values()];updates.clear();controller=new AbortController();
-      let status;
-      try{status=await engine.scan(values,{full,signal:controller.signal});}catch(error){store.flush();if(error.code==='ABORT_ERR')continue;throw error;}
+      controller=new AbortController();let status;
+      try{
+        if(full){const target=requested;requested=null;if(engine.setRootsAsync)await engine.setRootsAsync(target,{signal:controller.signal});else engine.setRoots(target);}
+        if(stopped||switching)break;
+        const values=full?engine.roots:[...updates.values()];updates.clear();
+        status=await engine.scan(values,{full,signal:controller.signal});}catch(error){store.flush();if((error.code==='ABORT_ERR'||error.name==='AbortError'))continue;throw error;}
       if(requested)continue;
       store.setMeta('roots',engine.roots);store.setMeta('problems',[...engine.failures.values()]);store.flush();
       send({type:'status',...status,indexing:!!requested||updates.size>0,elevated,elevationError,updated:Date.now()});
     }
-  }catch(error){send({type:'error',message:error.message});}finally{store.flush();indexing=false;if(initialized&&!switching&&(requested||updates.size))setImmediate(pump);}
+  }catch(error){send({type:'error',message:error.message});}finally{store.flush();indexing=false;if(initialized&&!switching&&!stopped&&(requested||updates.size))setImmediate(pump);}
 }
 async function search(message){
-  const generation=++searchGeneration,results=[];let total=0,processed=0;
+  const generation=++searchGeneration,results=[];let total=0,processed=0,totalExact=true;
+  const memorySearch=store.nameSearch&&!indexedQuery(message.query||'');
+  if(memorySearch){await store.nameSearch.prepare();if(generation!==searchGeneration){send({type:'results',id:message.id,entries:[],total:0,indexing,cancelled:true});return;}}
+  const matches=compileMatcher(message.query||'',message.filter);
+  let slice=Date.now();
   const limit=Number.isSafeInteger(message.limit)&&message.limit>0?message.limit:1000;
-  if(message.query?.trim())for(const entry of store.candidates(message.query)){
-    if(matches(entry,message.query,message.filter)){total++;if(results.length<limit)results.push(entry);}
-    if(++processed%2048===0){await new Promise(resolve=>setImmediate(resolve));if(generation!==searchGeneration){send({type:'results',id:message.id,entries:[],total:0,indexing,cancelled:true});return;}}
+  if(message.query?.trim())for(const entry of (memorySearch?store.nameSearch.candidates(message.query,message.filter):store.candidates(message.query))){
+    if(entry&&engine.allowed(entry.path)&&matches(entry)){total++;if(results.length<limit)results.push(entry);else{totalExact=false;break;}}
+    if((!entry||++processed%128===0)&&Date.now()-slice>=8){await new Promise(resolve=>setImmediate(resolve));if(generation!==searchGeneration){send({type:'results',id:message.id,entries:[],total:0,indexing,cancelled:true});return;}slice=Date.now();}
   }
-  send({type:'results',id:message.id,entries:results,total,indexing});
+  send({type:'results',id:message.id,entries:results,total,totalExact,indexing});
 }
 parentPort.on('message',message=>{
   if(message.type==='elevate'){
@@ -52,10 +59,10 @@ parentPort.on('message',message=>{
       catch(error){native?.close();native=null;elevated=false;elevationError=error.message;send({type:'elevation-result',ok:false,error:error.message});}
       finally{switching=false;send({type:'status',indexing:true,count:engine.entries.size,elevated,elevationError,awaitingElevation:false});pump();}})();return;
   }
-  if(message.type==='stop'){requested=null;updates.clear();controller?.abort();native?.close();store.flush();send({type:'stopped'});return;}
+  if(message.type==='stop'){stopped=true;requested=null;updates.clear();controller?.abort();native?.close();store.flush();send({type:'stopped'});return;}
   if(message.type==='update'){for(const value of message.paths||[])if(engine.allowed(value))updates.set(key(value),value);pump();return;}
-  if(message.type==='rebuild'){requested=message.roots;engine.setRoots(requested);controller?.abort();pump();return;}
-  search(message).catch(error=>send({type:'error',message:error.message}));
+  if(message.type==='rebuild'){requested=message.roots;engine.roots=requested;controller?.abort();pump();return;}
+  search(message).catch(error=>send({type:'search-error',id:message.id,message:error.message}));
 });
 (async()=>{
   // Import the old cache once; never rewrite a full JSON snapshot after changes.
@@ -64,6 +71,7 @@ parentPort.on('message',message=>{
     store.setMeta('legacyImported',true);store.flush();
   }
   if(elevated)try{send({type:'status',indexing:true,count:engine.entries.size,awaitingElevation:true});native=new NativeIndex({elevated:true});const info=await native.request({mode:'hello'});if(!info.elevated)throw new Error('관리자 권한을 확인할 수 없습니다.');}catch(error){native?.close();native=null;elevated=false;elevationError=error.message;}
+  if(store.nameSearch){let reported=0;await store.nameSearch.prepare(count=>{if(Date.now()-reported>250){reported=Date.now();send({type:'status',indexing:true,preparingSearch:true,count:store.count,preparedNames:count,elevated});}});send({type:'status',indexing:true,preparingSearch:false,count:store.count,elevated});}
   initialized=true;await pump();
 })().catch(error=>{native?.close();send({type:'error',message:error.message});});
 process.on('exit',()=>{native?.close();store.close();});

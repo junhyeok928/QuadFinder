@@ -14,6 +14,7 @@ test('native index streams large Unicode directories, supports long paths and re
     native=new NativeIndex({file:custom});await native.ready;
     await Promise.all(Array.from({length:530},(_,i)=>fs.writeFile(path.join(root,`자료-${i}.txt`),'abc')));
     let result=await native.list(root);assert.equal(result.entries.filter(entry=>entry.name.startsWith('자료-')).length,530);assert.equal(result.entries.find(entry=>entry.name==='자료-529.txt').size,3);
+    const flagged=path.join(root,'자료-0.txt');execFileSync('attrib.exe',['+H','+R',flagged],{windowsHide:true});const flags=await native.stat(flagged);assert.equal(flags.hidden,true);assert.equal(flags.readOnly,true);execFileSync('attrib.exe',['-H','-R',flagged],{windowsHide:true});
     const nested=path.join(root,...Array.from({length:8},()=> '긴경로-'.repeat(8)));await fs.mkdir(nested,{recursive:true});await fs.writeFile(path.join(nested,'끝.txt'),'long');result=await native.list(nested);assert.equal(result.entries[0].name,'끝.txt');assert.equal((await native.stat(path.join(nested,'끝.txt'))).size,4);
     await assert.rejects(native.request({mode:'write',path:root}));await assert.rejects(native.list('\\\\server\\share'));await assert.rejects(native.stat(path.join(root,'missing.txt')),{code:'ENOENT'});
     assert((await native.list(root)).entries.length>530);

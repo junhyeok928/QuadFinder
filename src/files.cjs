@@ -39,9 +39,11 @@ function compareEntries(a, b) {
   return Number(b.directory) - Number(a.directory) || entryNames.compare(a.name,b.name);
 }
 
-function matches(entry, query, filter = 'all') {
+function compileMatcher(query, filter = 'all', normalizedName = false) {
   const words = (query.normalize('NFC').toLocaleLowerCase().match(/(?:[^\s"]+|"[^"]*")+/g)||[]).map(word=>word.replace(/"/g,''));
-  const name=entry.name.normalize('NFC').toLocaleLowerCase();
+  const wildcards=new Map(words.filter(word=>!['ext:','path:','size:'].some(prefix=>word.startsWith(prefix))&&/[?*]/.test(word)).map(word=>{const escaped=word.replace(/[.+^$(){}|[\]\\]/g,'\\$&').replace(/\*/g,'.*').replace(/\?/g,'.');return [word,new RegExp('^'+escaped+'$','u')];}));
+  return entry=>{
+  const name=normalizedName?entry.name:entry.name.normalize('NFC').toLocaleLowerCase();
   if(!words.every(word=>{
     if(word.startsWith('ext:'))return !entry.directory&&word.slice(4).split(/[;,|]/).some(ext=>name.endsWith('.'+ext.replace(/^\./,'')));
     if(word.startsWith('path:'))return (entry.path||'').normalize('NFC').toLocaleLowerCase().includes(word.slice(5));
@@ -51,14 +53,16 @@ function matches(entry, query, filter = 'all') {
       const amount=Number(match[2])*1024**({b:0,kb:1,mb:2,gb:3,tb:4}[match[3]||'b']);
       return ({'>':entry.size>amount,'<':entry.size<amount,'>=':entry.size>=amount,'<=':entry.size<=amount,'=':entry.size===amount})[match[1]||'='];
     }
-    if(/[?*]/.test(word)){const escaped=word.replace(/[.+^${}()|[\]\\]/g,'\\$&').replace(/\*/g,'.*').replace(/\?/g,'.');return new RegExp('^'+escaped+'$','u').test(name);}
+    if(wildcards.has(word))return wildcards.get(word).test(name);
     return name.includes(word);
   }))return false;
   if (filter === 'documents') return !entry.directory && /\.(pdf|docx?|xlsx?|pptx?|txt|md|csv|hwp|hwpx)$/i.test(entry.name);
   if (filter === 'images') return !entry.directory && /\.(png|jpe?g|gif|webp|svg|bmp|avif|heic)$/i.test(entry.name);
   if (filter === 'recent') return entry.modified >= Date.now() - 7 * 86400000;
   return true;
+  };
 }
+function matches(entry,query,filter='all'){return compileMatcher(query,filter)(entry);}
 
 function childPath(parent, name) {
   if (typeof name !== 'string' || !name.trim() || /[<>:"/\\|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(name)) {
@@ -73,4 +77,4 @@ async function createFolder(parent, name) {
   return destination;
 }
 
-module.exports = { localPath, listDirectory, compareEntries, matches, childPath, createFolder };
+module.exports = { localPath, listDirectory, compareEntries, matches, compileMatcher, childPath, createFolder };

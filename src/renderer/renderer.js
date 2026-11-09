@@ -183,7 +183,7 @@ function renderRows(index) {
   }
   if(tab.search&&!tab.loading&&tab.entries.length<tab.total){const more=document.createElement('button');more.className='load-more search-more';more.textContent=tab.loadingMore?'검색 결과 불러오는 중…':'다음 1,000개 불러오기';more.disabled=!!tab.loadingMore;more.onclick=()=>loadMoreSearch(index);rows.append(more);}
   const shown=rows.querySelectorAll('.file-row').length;
-  element.querySelector('.item-count').textContent = tab.search ? `${(tab.total||0).toLocaleString()}개 검색 결과 · ${tab.entries.length.toLocaleString()}개 불러옴 · ${shown.toLocaleString()}개 표시` : `${sorted.length.toLocaleString()}개 항목${shown<sorted.length?` · ${shown.toLocaleString()}개 표시`:''}`;
+  element.querySelector('.item-count').textContent = tab.search ? `${(tab.total||0).toLocaleString()}개${tab.totalExact===false?' 이상':''} 검색 결과 · ${tab.entries.length.toLocaleString()}개 불러옴 · ${shown.toLocaleString()}개 표시` : `${sorted.length.toLocaleString()}개 항목${shown<sorted.length?` · ${shown.toLocaleString()}개 표시`:''}`;
   element.querySelector('.item-count').title=tab.search?'정렬과 전체 선택은 불러온 결과에 적용됩니다.':'Ctrl+A: 숨김 설정을 반영한 폴더 전체 선택 · Ctrl+Shift+A: 표시된 항목만 선택';
   rows.querySelectorAll('[data-group]').forEach(button=>button.onclick=event=>{event.stopPropagation();const set=tab.collapsed;set.has(button.dataset.group)?set.delete(button.dataset.group):set.add(button.dataset.group);renderRows(index);});
   updateSelection(index);
@@ -247,7 +247,7 @@ async function refreshSearch(){
   const token=++state.request;
   try{const result=await call(api.search(query,state.filter,tab.searchLimit||1000));if(result.cancelled||token!==state.request||tabOf(pane)!==tab||!tab.search||$('#search').value.trim()!==query)return;
     if(!refreshFocused){queueRefresh([]);return;}
-    const changed=result.total!==tab.total||!ChangePolicy.sameEntries(tab.entries,result.entries);tab.entries=result.entries;tab.total=result.total;
+    const changed=result.totalExact!==tab.totalExact||result.total!==tab.total||!ChangePolicy.sameEntries(tab.entries,result.entries);tab.entries=result.entries;tab.total=result.total;tab.totalExact=result.totalExact;
     if(!changed)return;const existing=new Set(result.entries.map(entry=>entry.path));tab.selection=new Set([...selection(tab)].filter(value=>existing.has(value)));
     const table=pane.element.querySelector('.file-table'),top=table.scrollTop,left=table.scrollLeft,focused=document.activeElement.closest?.('.file-row'),focusedPath=focused&&pane.element.contains(focused)?focused.title:null;renderRows(0);bindViewFeatures(0);table.scrollTop=top;table.scrollLeft=left;if(focusedPath)Array.from(table.querySelectorAll('.file-row')).find(row=>row.title===focusedPath)?.focus({preventScroll:true});
   }catch(error){toast(`검색 갱신 실패: ${error.message}`);}
@@ -261,7 +261,7 @@ async function loadMoreSearch(index){
     const result=await call(api.search(query,filter,limit));
     if(result.cancelled||token!==state.request||tabOf(pane)!==tab||!tab.search||$('#search').value.trim()!==query)return;
     const existing=new Set(result.entries.map(entry=>entry.path));
-    tab.entries=result.entries;tab.total=result.total;tab.searchLimit=limit;tab.limit=Math.max(tab.limit||2000,limit);
+    tab.entries=result.entries;tab.total=result.total;tab.totalExact=result.totalExact;tab.searchLimit=limit;tab.limit=Math.max(tab.limit||2000,limit);
     tab.selection=new Set([...selection(tab)].filter(value=>existing.has(value)));
   }catch(error){if(token===state.request)toast(`검색 결과를 더 불러오지 못했습니다: ${error.message}`);}
   finally{if(tab.moreRequest===token)tab.loadingMore=false;if(token===state.request&&tabOf(pane)===tab&&tab.search){const table=pane.element.querySelector('.file-table'),top=table.scrollTop,left=table.scrollLeft;renderRows(index);bindViewFeatures(index);table.scrollTop=top;table.scrollLeft=left;}}
@@ -278,9 +278,9 @@ async function runSearch() {
   state.query=$('#search').value.trim();
   if (!state.query) { state.panes.forEach((pane,index)=>{ pane.tabs.forEach(tab=>tab.search=false); renderPane(index); load(index); }); return; }
   const pane=state.panes[0];
-  const tab=tabOf(pane); tab.search=true; tab.loading=true; tab.loadingMore=false;tab.searchLimit=1000;tab.limit=2000;tab.error=null; tab.request++;
-  setActive(0); renderPane(0);syncSidebar();
-  try { const result=await call(api.search(state.query,state.filter)); if(result.cancelled||token!==state.request||tabOf(pane)!==tab||!tab.search)return; tab.entries=result.entries;const existing=new Set(result.entries.map(entry=>entry.path));tab.selection=new Set([...selection(tab)].filter(value=>existing.has(value)));tab.total=result.total; tab.loading=false; renderPane(0); }
+  const tab=tabOf(pane),wasSearch=tab.search&&!tab.error; tab.search=true; tab.loading=true; tab.loadingMore=false;tab.searchLimit=1000;tab.limit=2000;tab.error=null; tab.request++;
+  setActive(0); if(!wasSearch)renderPane(0);syncSidebar();
+  try { const result=await call(api.search(state.query,state.filter)); if(result.cancelled||token!==state.request||tabOf(pane)!==tab||!tab.search)return; tab.entries=result.entries;const existing=new Set(result.entries.map(entry=>entry.path));tab.selection=new Set([...selection(tab)].filter(value=>existing.has(value)));tab.total=result.total;tab.totalExact=result.totalExact; tab.loading=false; renderRows(0);bindViewFeatures(0); }
   catch(error) { if(token!==state.request||tabOf(pane)!==tab||!tab.search)return; tab.error=error.message; tab.loading=false; renderPane(0); }
 }
 function renderIndexDiagnostics(status){
@@ -295,7 +295,7 @@ function renderIndexDiagnostics(status){
 function updateIndex(status) {
   state.indexStatus=status;
   const issues=status.issues||{};
-  $('#index-status').textContent=status.error?'검색 인덱스 오류':status.awaitingElevation?'관리자 승인 대기 중…':status.indexing?`파일 인덱싱 중 · ${(status.scanned||0).toLocaleString()}개 폴더 확인`:status.problemCount?`확인 완료 · 권한 ${issues.denied||0} · 시간 초과 ${issues.timedOut||0} · 기타 ${(issues.missing||0)+(issues.other||0)}`:status.limited?'인덱스 한도 도달':'인덱스 준비 완료';
+  $('#index-status').textContent=status.error?'검색 인덱스 오류':status.awaitingElevation?'관리자 승인 대기 중…':status.preparingSearch?`빠른 검색 준비 중 · ${(status.preparedNames||0).toLocaleString()}개`:status.indexing?`파일 인덱싱 중 · ${(status.scanned||0).toLocaleString()}개 폴더 확인`:status.problemCount?`확인 완료 · 권한 ${issues.denied||0} · 시간 초과 ${issues.timedOut||0} · 기타 ${(issues.missing||0)+(issues.other||0)}`:status.limited?'인덱스 한도 도달':'인덱스 준비 완료';
   if(status.watchProblems?.length)$('#index-status').textContent+=' · 변경 감시 재연결 중';
   $('#index-count').textContent=`${status.count.toLocaleString()}개 파일·폴더`;
   $('.status-dot').classList.toggle('busy',status.indexing);
@@ -327,8 +327,9 @@ async function init() {
   document.querySelectorAll('[data-window]').forEach(button=>button.onclick=()=>call(api.windowAction(button.dataset.window)).catch(error=>toast(error.message)));
   document.querySelectorAll('[data-layout]').forEach(button=>button.onclick=()=>applyLayout(Number(button.dataset.layout)));
   document.querySelectorAll('[data-filter]').forEach(button=>button.onclick=()=>{state.filter=button.dataset.filter;document.querySelectorAll('[data-filter]').forEach(item=>item.classList.toggle('active',item===button));if(state.query)runSearch();else toast('검색어를 입력하면 선택한 필터가 적용됩니다.');});
-  $('#search').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(runSearch,180);};
-  $('#search').onkeydown=event=>{if(event.key==='Enter'){clearTimeout(searchTimer);runSearch();}if(event.key==='Escape'){$('#search').value='';runSearch();}};
+  $('#search').oninput=event=>{++state.request;clearTimeout(searchTimer);if(event.isComposing)return;searchTimer=setTimeout(runSearch,35);};
+  $('#search').oncompositionend=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(runSearch,0);};
+  $('#search').onkeydown=event=>{if(event.isComposing)return;if(event.key==='Enter'){clearTimeout(searchTimer);runSearch();}if(event.key==='Escape'){$('#search').value='';runSearch();}};
   $('#clear-search').onclick=()=>{$('#search').value='';runSearch();$('#search').focus();};
   $('#index-status').onclick=()=>{renderIndexDiagnostics(state.indexStatus||state.boot.indexStatus);$('#index-dialog').showModal();};
   $('#close-index').onclick=()=>$('#index-dialog').close();
