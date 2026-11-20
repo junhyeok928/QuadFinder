@@ -17,7 +17,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      # Native Windows dialog tests share desktop resources with other tests.
+      - run: node --test --test-concurrency=1 tests/*.test.cjs
       - run: pnpm smoke
       - run: pnpm design:check
       - run: pnpm package
