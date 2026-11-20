@@ -17,7 +17,7 @@ test('Windows shell exposes real file/background menus and native hidden attribu
     const dismissed=await shell.request({mode:'dismiss-test',paths:[first],x:30,y:30});assert.equal(dismissed.cancelled,true);
     for(const dismissAction of ['escape','deactivate','escape']){const result=await shell.request({mode:'dismiss-test',paths:[root],background:true,extended:true,x:30,y:30,dismissAction});assert.equal(result.cancelled,true,dismissAction);}
     await backgroundCommands({shell,root});
-  }finally{assert(path.basename(root).startsWith('quadfinder-shell-'));await fs.rm(root,{recursive:true,force:true});}
+  }finally{assert(path.basename(root).startsWith('quadfinder-shell-'));await fs.rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:100});}
 });
 
 async function backgroundCommands({shell,root}){
