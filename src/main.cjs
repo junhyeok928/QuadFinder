@@ -13,6 +13,7 @@ const {AppUpdater}=require('./updater.cjs');
 const {WatchManager}=require('./watch-manager.cjs');
 const windowsShell=require('./windows-shell.cjs');
 const terminalLauncher=require('./terminal.cjs');
+const fileIcons=new (require('./file-icons.cjs').FileIcons)(async file=>{const icon=await app.getFileIcon(file,{size:'normal'});return icon.isEmpty()?null:icon.toDataURL();});
 const {preview}=require('./file-preview.cjs');
 const {normalize:normalizeNavigation}=require('./navigation-state.cjs');
 const {normalize:normalizeView}=require('./view-options.cjs');
@@ -295,6 +296,7 @@ async function readDrives(){
     shellMenuOpen=true;try{const result=await windowsShell.request({mode:smoke&&input.probe?'probe':'menu',ownerWindow:window.getNativeWindowHandle().readBigUInt64LE().toString(),paths,background:input.background===true,extended:input.extended===true,canPaste:input.canPaste===true,viewOptions:normalizeView(input.viewOptions||{}),x:point.x,y:point.y,verb:input.verb});if(!result?.handledByApp&&result?.action==='delete')undo.clear();if(!result?.handledByApp&&result?.action&&!['copy','cut','properties','openas','rename','windows.modernshare'].includes(result.action))filesChanged(paths.concat(paths.map(value=>path.dirname(value))));return result;}finally{shellMenuOpen=false;if(window&&!window.isDestroyed()){window.focus();window.webContents.focus();}}
   });
   handle('files:terminal',value=>terminalLauncher.openTerminal(value));
+  handle('files:icon',value=>fileIcons.get(localPath(value)));
   handle('files:thumbnail', async value => {
     const file=localPath(value);
     if(!/\.(png|jpe?g|webp|bmp|gif|avif)$/i.test(file))return null;
@@ -498,6 +500,8 @@ async function readDrives(){
     functionSmokeRoot=await fs.mkdtemp(path.join(app.getAppPath(),'output','functional-smoke-'));
     result.viewOptions=await require('../scripts/view-smoke.cjs').run({window,root:functionSmokeRoot,appPath:app.getAppPath(),saveComplete:async()=>{await new Promise(resolve=>setTimeout(resolve,250));await saveQueue;}});
     result.fileOperations=await require('../scripts/functional-smoke.cjs').run({window,root:functionSmokeRoot});
+    result.dropFeedback=await require('../scripts/drop-feedback-smoke.cjs').run({window,root:functionSmokeRoot});
+    result.fileIcons=await require('../scripts/file-icons-smoke.cjs').run({window,root:functionSmokeRoot,app});
     interactiveDialogSmoke=true;
     try{result.dialogs=await require('../scripts/dialog-smoke.cjs').run({window,root:functionSmokeRoot,output:path.join(app.getAppPath(),'output')});}finally{interactiveDialogSmoke=false;}
     result.interactions=await require('../scripts/interaction-smoke.cjs').run({window,root:functionSmokeRoot});

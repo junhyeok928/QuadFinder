@@ -19,6 +19,7 @@ if(process.argv.includes('--quadfinder-design-preview')) {
   readClipboard:()=>ipcRenderer.invoke('files:clipboard-read'),
   copyPaths:paths=>ipcRenderer.invoke('files:copy-path',paths),
   thumbnail: path => ipcRenderer.invoke('files:thumbnail', path),
+  fileIcon: path => ipcRenderer.invoke('files:icon', path),
   chooseFolder: (addToIndex=true) => ipcRenderer.invoke('files:choose',addToIndex),
   open: path => ipcRenderer.invoke('files:open', path),
   reveal: path => ipcRenderer.invoke('files:reveal', path),

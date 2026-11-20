@@ -16,7 +16,7 @@ async function run({window,root,notify,saveComplete,networkRoot,stateFile,rootsF
   await evaluate(`setActive(1);renderRoots(state.boot.roots)`);
   assert(await evaluate(`ChangePolicy.key(document.querySelector('nav button.active').dataset.location)===ChangePolicy.key(${JSON.stringify(second)})`));
   await delay(700);
-  await evaluate(`(()=>{const a=state.panes[0].element,b=state.panes[1].element;window.refreshSnapshot={table:a.querySelector('.file-table'),row:a.querySelector('.file-row'),other:b.querySelector('.file-row'),changes:0};refreshSnapshot.table.scrollTop=240;refreshSnapshot.top=refreshSnapshot.table.scrollTop;refreshSnapshot.row.click();setActive(1);window.refreshObserver=new MutationObserver(records=>refreshSnapshot.changes+=records.length);refreshObserver.observe(a,{subtree:true,childList:true});})()`);
+  await evaluate(`(()=>{const a=state.panes[0].element,b=state.panes[1].element;window.refreshSnapshot={table:a.querySelector('.file-table'),row:a.querySelector('.file-row'),other:b.querySelector('.file-row'),changes:0};refreshSnapshot.table.scrollTop=240;refreshSnapshot.top=refreshSnapshot.table.scrollTop;refreshSnapshot.row.click();setActive(1);window.refreshObserver=new MutationObserver(records=>refreshSnapshot.changes+=records.filter(record=>!record.target.closest?.(".file-icon")).length);refreshObserver.observe(a,{subtree:true,childList:true});})()`);
   notify([changed]);await delay(800);
   assert(await evaluate(`refreshSnapshot.changes===0&&refreshSnapshot.row===state.panes[0].element.querySelector('.file-row')`));
   await evaluate(`window.dispatchEvent(new Event('blur'))`);

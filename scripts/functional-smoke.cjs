@@ -30,7 +30,7 @@ async function run({window,root}){
   assert.equal(await fs.readFile(path.join(target,'renamed.txt'),'utf8'),'first file');
   await evaluate(`load(1)`);
   const beforeMove=await evaluate('currentJobs.length');
-  await evaluate(`(()=>{const row=[...document.querySelectorAll('.pane:nth-child(2) .file-row')].find(row=>row.title===${JSON.stringify(path.join(target,'renamed.txt'))});row.click();const data=new DataTransfer();row.dispatchEvent(new DragEvent('dragstart',{dataTransfer:data,bubbles:true}));document.querySelector('.pane:nth-child(3) .file-table').dispatchEvent(new DragEvent('drop',{dataTransfer:data,shiftKey:true,bubbles:true,cancelable:true}));})()`);
+  await evaluate(`(()=>{const row=[...document.querySelectorAll('.pane:nth-child(2) .file-row')].find(row=>row.title===${JSON.stringify(path.join(target,'renamed.txt'))});row.click();const data=new DataTransfer();row.dispatchEvent(new DragEvent('dragstart',{dataTransfer:data,bubbles:true}));document.querySelector('.pane:nth-child(3) .file-table').dispatchEvent(new DragEvent('drop',{dataTransfer:data,bubbles:true,cancelable:true}));})()`);
   let moveId;
   for(let i=0;i<200;i++){const jobs=await evaluate('currentJobs');if(jobs.length>beforeMove){moveId=jobs.at(-1).id;break;}await new Promise(resolve=>setTimeout(resolve,50));}
   await waitJob(moveId);await assert.rejects(fs.stat(path.join(target,'renamed.txt')),{code:'ENOENT'});assert.equal(await fs.readFile(path.join(moved,'renamed.txt'),'utf8'),'first file');

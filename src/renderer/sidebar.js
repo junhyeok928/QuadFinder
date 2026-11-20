@@ -82,9 +82,9 @@ function makeNavItem(item,category,depth=0,parentPath=null,section=category==='d
     }
   };
   if(category==='custom'&&depth===0){button.ondragstart=event=>{sidebarDrag=path;event.dataTransfer.setData('application/x-quadfinder-navigation',path);event.dataTransfer.effectAllowed='move';};button.ondragend=()=>{sidebarDrag=null;document.querySelectorAll('.nav-drop-target').forEach(element=>element.classList.remove('nav-drop-target'));};}
-  button.ondragover=event=>{if((sidebarDrag&&category==='custom'&&depth===0)||(!sidebarDrag&&(event.dataTransfer.types.includes('application/x-quadfinder')||event.dataTransfer.types.includes('Files')))){event.preventDefault();event.dataTransfer.dropEffect=sidebarDrag?'move':event.shiftKey?'move':'copy';button.classList.add('nav-drop-target');}};
-  button.ondragleave=()=>button.classList.remove('nav-drop-target');
-  button.ondrop=async event=>{event.preventDefault();event.stopPropagation();button.classList.remove('nav-drop-target');if(sidebarDrag){if(category==='custom'&&depth===0)reorderLocation(sidebarDrag,path);sidebarDrag=null;return;}const paths=await sidebarDropPaths(event);if(paths.length)await transfer(event.shiftKey?'move':'copy',paths,path,{drop:true});};
+  button.ondragover=event=>{if((sidebarDrag&&category==='custom'&&depth===0)||(!sidebarDrag&&(event.dataTransfer.types.includes('application/x-quadfinder')||event.dataTransfer.types.includes('Files')))){event.preventDefault();event.dataTransfer.dropEffect=sidebarDrag?'move':event.ctrlKey?'copy':'move';if(sidebarDrag)button.classList.add('nav-drop-target');else markFileDropTarget(button,event,path);}};
+  button.ondragleave=event=>{if(!button.contains(event.relatedTarget)){button.classList.remove('nav-drop-target');if(fileDropTarget===button)clearFileDropTarget();}};
+  button.ondrop=async event=>{event.preventDefault();event.stopPropagation();button.classList.remove('nav-drop-target');if(sidebarDrag){if(category==='custom'&&depth===0)reorderLocation(sidebarDrag,path);sidebarDrag=null;return;}clearFileDropTarget();const kind=event.ctrlKey?'copy':'move',paths=await sidebarDropPaths(event);if(paths.length)await transfer(kind,paths,path,{drop:true});};
   if(expanded&&!navState().collapsed[section])loadNavChildren(node);return node;
 }
 async function expandNavItem(node,expanded){

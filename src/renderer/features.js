@@ -4,7 +4,7 @@ let clipboardQueue=Promise.resolve();
 function clipboardTask(task){const next=clipboardQueue.catch(()=>{}).then(task);clipboardQueue=next;return next;}
 async function readFileClipboard(){return clipboardTask(async()=>{if(api.readClipboard){const data=await call(api.readClipboard());fileClipboard=data.paths.length?data:null;}return fileClipboard;});}
 let jobsHideTimer=null,jobsManuallyOpened=false;
-function scheduleJobsHide(){clearTimeout(jobsHideTimer);if($('#operations-panel').hidden||jobsManuallyOpened||currentJobs.some(activeJob))return;jobsHideTimer=setTimeout(()=>{if(!jobsManuallyOpened&&!currentJobs.some(activeJob))$('#operations-panel').hidden=true;},1500);}
+function scheduleJobsHide(){clearTimeout(jobsHideTimer);if($('#operations-panel').hidden||jobsManuallyOpened||currentJobs.some(activeJob)||currentJobs.some(job=>job.errors?.length||['failed','partial'].includes(job.status)))return;jobsHideTimer=setTimeout(()=>{if(!jobsManuallyOpened&&!currentJobs.some(activeJob))$('#operations-panel').hidden=true;},1500);}
 let currentJobs=[];
 let refreshFocused=true,pendingRefreshAll=false,pendingSearch=false,refreshRunning=false;
 const pendingRefreshPaths=new Set();
@@ -34,6 +34,17 @@ function chooseEntry(index,entry,event={},list=state.panes[index].visibleEntries
   else{selected.clear();selected.add(entry.path);tab.anchor=entry.path;}
   tab.selected=entry.path;setActive(index);updateSelection(index);
 }
+let fileDropTarget=null;
+function clearFileDropTarget(){
+  fileDropTarget?.classList.remove('drop-target','drop-folder','nav-drop-target');fileDropTarget=null;document.getElementById('file-drop-hint')?.remove();
+}
+function markFileDropTarget(target,event,destination){
+  if(fileDropTarget!==target){clearFileDropTarget();fileDropTarget=target;target?.classList.add(target.classList.contains('file-row')?'drop-folder':target.classList.contains('nav-location')?'nav-drop-target':'drop-target');}
+  if(!event||!destination)return;
+  let hint=document.getElementById('file-drop-hint');if(!hint){hint=document.createElement('div');hint.id='file-drop-hint';hint.setAttribute('role','status');hint.setAttribute('aria-live','polite');document.body.append(hint);}
+  const label=(basename(destination)||destination)+'에 '+(event.ctrlKey?'복사 · Ctrl을 놓으면 이동':'이동 · Ctrl: 복사');if(hint.textContent!==label)hint.textContent=label;
+  hint.style.left=Math.max(8,Math.min(event.clientX+16,innerWidth-hint.offsetWidth-8))+'px';hint.style.top=Math.max(8,Math.min(event.clientY+20,innerHeight-hint.offsetHeight-8))+'px';
+}
 function bindRows(index,rows,sorted){
   const pane=state.panes[index],tab=tabOf(pane);pane.visibleEntries=sorted;
   rows.querySelectorAll('[data-row]').forEach(row=>{
@@ -49,7 +60,7 @@ function bindRows(index,rows,sorted){
     row.ondragstart=event=>{if(!selection(tab).has(entry.path))chooseEntry(index,entry,{},sorted);const paths=selectedEntries(index).map(item=>item.path);
       if(event.isTrusted&&api.startFileDrag){event.preventDefault();draggedPaths=null;api.startFileDrag(paths);return;}
       draggedPaths=paths;event.dataTransfer.setData('application/x-quadfinder',JSON.stringify(paths));event.dataTransfer.effectAllowed='copyMove';};
-    row.ondragend=()=>{draggedPaths=null;document.querySelectorAll('.drop-target').forEach(item=>item.classList.remove('drop-target'));};
+    row.ondragend=()=>{draggedPaths=null;clearFileDropTarget();};
   });
   updateSelection(index);
 }
@@ -62,17 +73,21 @@ function bindPaneFeatures(index){
   table.oncontextmenu=event=>{event.preventDefault();setActive(index);selection(tab).clear();tab.selected=null;updateSelection(index);showFileMenu(index,event.clientX,event.clientY,true,event.shiftKey);};
   table.onclick=event=>{if(!event.target.closest('.file-row,.columns,.load-more,.group-heading')){selection(tab).clear();tab.selected=null;updateSelection(index);}};
   table.ondragover=event=>{
-    if(tab.search)return;event.preventDefault();event.dataTransfer.dropEffect=event.shiftKey?'move':'copy';
-    element.classList.add('drop-target');
+    const types=Array.from(event.dataTransfer?.types||[]);
+    if(tab.search||(!draggedPaths&&!types.includes('Files')&&!types.includes('application/x-quadfinder'))){clearFileDropTarget();return;}
+    event.preventDefault();event.dataTransfer.dropEffect=event.ctrlKey?'copy':'move';
+    const row=event.target.closest('.file-row'),entry=row&&table.contains(row)?pane.visibleEntries[Number(row.dataset.row)]:null;
+    markFileDropTarget(entry?.directory?row:element,event,entry?.directory?entry.path:tab.path);
   };
-  table.ondragleave=event=>{if(!table.contains(event.relatedTarget))element.classList.remove('drop-target');};
+  table.ondragleave=event=>{if(!table.contains(event.relatedTarget))clearFileDropTarget();else if(fileDropTarget?.classList.contains('drop-folder')&&!fileDropTarget.contains(event.relatedTarget))clearFileDropTarget();};
   table.ondrop=async event=>{
-    event.preventDefault();element.classList.remove('drop-target');if(tab.search)return toast('파일을 받을 폴더 패널에 놓으세요.');
-    let sources=draggedPaths;
+    event.preventDefault();clearFileDropTarget();if(tab.search)return toast('파일을 받을 폴더 패널에 놓으세요.');
+    const row=event.target.closest('.file-row'),entry=row&&table.contains(row)?pane.visibleEntries[Number(row.dataset.row)]:null;
+    const destination=entry?.directory?entry.path:tab.path,kind=event.ctrlKey?'copy':'move';
+    let sources=draggedPaths?Array.from(draggedPaths):null;draggedPaths=null;
     try{if(!sources&&event.dataTransfer.files.length&&api.dropPaths)sources=await api.dropPaths(Array.from(event.dataTransfer.files));}catch(error){toast(error.message);return;}
     if(!sources?.length)return;
-    const row=event.target.closest('.file-row'),entry=row?pane.visibleEntries[Number(row.dataset.row)]:null;
-    await transfer(event.shiftKey?'move':'copy',sources,entry?.directory?entry.path:tab.path,{drop:true});
+    await transfer(kind,sources,destination,{drop:true});
     draggedPaths=null;
   };
   updateSelection(index);
@@ -156,6 +171,10 @@ function renderRoots(roots){
   renderSidebar();
 }
 function initFeatures(boot){
+  document.addEventListener('dragend',clearFileDropTarget,true);
+  document.addEventListener('drop',clearFileDropTarget,true);
+  document.addEventListener('keydown',event=>{if(event.key==='Escape')clearFileDropTarget();});
+  window.addEventListener('blur',clearFileDropTarget);
   let undoState=boot.undo;
   const updateUndo=value=>{undoState=value;const button=$('#undo-operation');button.disabled=!value?.available&&!value?.busy;button.textContent=value?.busy?'처리 중단':'실행 취소';button.title=value?.busy?'내용 검증 또는 실행 취소 처리를 중단합니다.':value?.label?`${value.label} 실행 취소 (Ctrl+Z) · 이번 실행에서 최근 20개 작업`:'실행 취소 (Ctrl+Z) · 이번 실행에서 완료한 복사·이동·이름 변경';};
   updateUndo(boot.undo);api.onUndo?.(updateUndo);

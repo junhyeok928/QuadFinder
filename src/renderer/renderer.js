@@ -54,6 +54,24 @@ function typeLabel(entry) {
   const ext = entry.name.split('.').pop().toLowerCase();
   return ({docx:'Microsoft Word 문서',doc:'Microsoft Word 문서',xlsx:'Microsoft Excel 워크시트',xls:'Microsoft Excel 워크시트',pptx:'Microsoft PowerPoint 문서',pdf:'PDF 문서',txt:'텍스트 문서',md:'Markdown 문서',csv:'Microsoft Excel CSV',psd:'Adobe Photoshop 문서',ai:'Adobe Illustrator 문서',exe:'응용 프로그램',zip:'압축(ZIP) 폴더',mp4:'MP4 동영상'})[ext] || `${ext.toUpperCase()} ${fileType(entry)==='image'?'이미지':'파일'}`;
 }
+const systemIconCache=new Map(),systemIconPending=new Map(),systemIconRuns=new WeakMap();
+function systemIconKey(entry){const ext=(entry.name.match(/\.[^.]+$/)?.[0]||'').toLowerCase();return ext&&!['.exe','.dll','.ico','.lnk','.url','.cpl','.scr','.msc'].includes(ext)?ext:entry.path.toLowerCase();}
+async function loadSystemIcon(entry){
+  const key=systemIconKey(entry),cached=systemIconCache.get(key);if(cached&&cached.expires>Date.now())return cached.image;
+  let pending=systemIconPending.get(key);
+  if(!pending){pending=Promise.resolve().then(()=>call(api.fileIcon(entry.path))).then(image=>{if(!/^data:image\/png;base64,/.test(image))return null;if(systemIconCache.size>=256)systemIconCache.delete(systemIconCache.keys().next().value);systemIconCache.set(key,{image,expires:Date.now()+60000});return image;}).catch(()=>null).finally(()=>systemIconPending.delete(key));systemIconPending.set(key,pending);}
+  return pending;
+}
+function clearSystemIcons(rows){if(!rows)return;systemIconRuns.get(rows)?.observer?.disconnect();systemIconRuns.delete(rows);}
+function decorateSystemIcons(rows,entries){
+  clearSystemIcons(rows);if(!api.fileIcon)return;const run={};systemIconRuns.set(rows,run);
+  const paint=async row=>{const entry=entries[Number(row.dataset.row)];if(!entry||entry.directory)return;const image=await loadSystemIcon(entry);if(!rows.isConnected||!row.isConnected||systemIconRuns.get(rows)!==run)return;const holder=row.querySelector('.file-icon');if(!image||!holder||holder.classList.contains('thumbnail'))return;const img=document.createElement('img');img.src=image;img.alt='';img.draggable=false;holder.replaceChildren(img);holder.classList.add('system-icon');};
+  const targets=[...rows.querySelectorAll('[data-row]')].filter(row=>!entries[Number(row.dataset.row)]?.directory);
+  if(typeof IntersectionObserver==='function'){
+    run.observer=new IntersectionObserver(changes=>{if(!rows.isConnected){run.observer.disconnect();return;}for(const change of changes)if(change.isIntersecting){run.observer.unobserve(change.target);paint(change.target);}}, {root:rows.closest('.file-table'),rootMargin:'160px'});
+    targets.forEach(row=>run.observer.observe(row));
+  }else{(async()=>{for(let i=0;i<targets.length;i+=4){if(!rows.isConnected||systemIconRuns.get(rows)!==run)return;await Promise.all(targets.slice(i,i+4).map(paint));}})();}
+}
 const thumbnails = new Map(),thumbnailPending=new Map(),thumbnailRuns=new WeakMap();
 async function decorateThumbnails(rows, entries) {
   if (!api.thumbnail) return;
@@ -144,6 +162,7 @@ function applyLayout(value) { state.layout = value; if (state.active >= value) s
 
 function renderPane(index) {
   const pane = state.panes[index], tab = tabOf(pane), element = pane.element;
+  clearSystemIcons(element.querySelector('.rows'));
   element.querySelector('.file-table')?.cancelMarquee?.();
   element.innerHTML = `<div class="tabs-bar"><div class="tabs">${pane.tabs.map((item,i) => `<div class="tab ${pane.active===i?'current':''}"><button data-tab="${i}" title="${escapeHTML(item.path)}">${icon(tabIcon(item))}<span>${escapeHTML(item.search?'검색 결과':tabLabel(item.path))}</span></button><button class="close-tab" data-close="${i}" aria-label="${escapeHTML(tabLabel(item.path))} 탭 닫기">×</button></div>`).join('')}</div><select class="view-mode" aria-label="패널 ${index+1} 보기 방식">${Object.entries(viewModes).map(([value,label])=>`<option value="${value}" ${tab.view===value?"selected":""}>${label}</option>`).join("")}</select><button class="view-options" title="보기 옵션" aria-label="패널 ${index+1} 보기 옵션">${menuIcon('view')}</button><button class="new-tab" title="새 탭 (Ctrl+T)" aria-label="패널 ${index+1} 새 탭">${icon('plus')}</button></div>
     <div class="navigation"><button data-action="back" title="뒤로" aria-label="패널 ${index+1} 뒤로" ${tab.cursor<=0?'disabled':''}>${icon('left')}</button><button data-action="forward" title="앞으로" aria-label="패널 ${index+1} 앞으로" ${tab.cursor>=tab.history.length-1?'disabled':''}>${icon('right')}</button><button data-action="up" title="상위 폴더" aria-label="패널 ${index+1} 상위 폴더">${icon('up')}</button><div class="address ${tab.search?'search-address':''}" title="${escapeHTML(tab.search?'PC의 로컬 드라이브에서 검색':tab.path+' · 더블클릭 또는 Ctrl+L로 경로 입력')}">${tab.search?`${icon('drive')}<span class="search-scope">PC 전체</span>`:`<div class="breadcrumbs">${breadcrumbs(tab.path)}</div>`}<input class="path-input" hidden aria-label="패널 ${index+1} 폴더 경로" value="${escapeHTML(tab.path)}" ${tab.search?'readonly':''}></div><button class="refresh-button" data-action="refresh" title="새로고침" aria-label="패널 ${index+1} 새로고침">${icon('refresh')}</button><button data-action="mkdir" title="새 폴더" aria-label="패널 ${index+1} 새 폴더" ${tab.search?'disabled':''}>${icon('new-folder')}</button></div>
@@ -172,11 +191,12 @@ function renderPane(index) {
 function renderRows(index) {
   const pane = state.panes[index], tab = tabOf(pane), element = pane.element;
   element.querySelector('.file-table')?.cancelMarquee?.();
-  const rows = element.querySelector('.rows'),sorted=visibleSorted(index);pane.visibleEntries=sorted;
+  const rows = element.querySelector('.rows'),sorted=visibleSorted(index);clearSystemIcons(rows);pane.visibleEntries=sorted;
   if (tab.loading || tab.error || !sorted.length) {
     rows.innerHTML = `<div class="empty-state">${icon(tab.search?'search':'folder')}<strong>${tab.loading?'불러오는 중…':tab.error?'폴더를 열 수 없습니다':tab.search?'검색 결과가 없습니다':'폴더가 비어 있습니다'}</strong><small>${escapeHTML(tab.error || (tab.search?'다른 파일명을 입력하거나 검색 폴더를 추가해보세요.':'새 폴더를 만들거나 다른 경로로 이동하세요.'))}</small></div>`;
   } else {
     rows.innerHTML=renderFileRows(index,sorted);
+    decorateSystemIcons(rows, sorted);
     decorateThumbnails(rows, sorted);
     bindRows(index,rows,sorted);
     if(sorted.length>(tab.limit||2000)){const more=document.createElement('button');more.className='load-more';more.textContent='다음 2,000개 표시';more.onclick=()=>{tab.limit=(tab.limit||2000)+2000;renderRows(index);};rows.append(more);}
