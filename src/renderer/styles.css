@@ -373,7 +373,7 @@ nav .recent-location { height:42px; padding:5px 8px; gap:8px; }
 .recent-label>small { font-size:10px; color:var(--muted); }
 .recent-empty { display:block; padding:8px; color:var(--muted); font-size:11px; }
 #clear-recent { padding:6px 8px; font-size:11px; color:var(--muted); }
-.drive-meter { background:var(--line); }
+.drive-meter { background:var(--drive-track); outline:1px solid var(--drive-border); outline-offset:0; }
 .panes { position:relative; grid-template-columns:minmax(0,var(--left,1fr)) minmax(0,var(--right,1fr)); grid-template-rows:minmax(0,var(--top,1fr)) minmax(0,var(--bottom,1fr)); }
 .panes.layout-2 { grid-template-columns:minmax(0,var(--left,1fr)) minmax(0,var(--right,1fr)); }
 .panel-resizer { position:absolute; z-index:4; touch-action:none; }
@@ -382,7 +382,7 @@ nav .recent-location { height:42px; padding:5px 8px; gap:8px; }
 .panel-resizer:hover,.panel-resizer:focus-visible { background:color-mix(in srgb,var(--accent) 20%,transparent);outline:none; }
 .resizing-panels,.resizing-panels * { user-select:none!important; }
 @media (max-height:650px) { .panes.layout-4 { grid-template-rows:minmax(220px,var(--top,1fr)) minmax(220px,var(--bottom,1fr)); } }
-.drive-meter i { background:var(--accent); }
+.drive-meter i { background:var(--drive-fill); }
 .column-resize:hover,.column-resize:focus { background:var(--selected); }
 
 /* Navigation primary labels share the file-list type scale. */

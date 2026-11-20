@@ -57,3 +57,11 @@ test('update button shows an accessible dot only for known newer versions',()=>{
  render({phase:'current',available:false});assert.equal(button.dot,false);
  for(const phase of ['downloading','ready']){render({phase});assert.equal(button.dot,true);}
 });
+
+test('stable 1.0.0 upgrades beta users and stable users ignore future betas',()=>{
+ const {newestRelease}=require('../src/release-check.cjs');
+ const releases=[{tag_name:'v1.0.0',prerelease:false},{tag_name:'v1.1.0-beta.1',prerelease:true}];
+ assert.equal(newestRelease(releases.slice(0,1),'0.14.0-beta.20'),'v1.0.0');
+ assert.equal(newestRelease(releases,'1.0.0'),null);
+ assert.equal(newestRelease([{tag_name:'v1.0.1',prerelease:false}],'1.0.0'),'v1.0.1');
+});
